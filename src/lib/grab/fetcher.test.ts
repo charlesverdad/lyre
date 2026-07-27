@@ -60,15 +60,29 @@ describe('grabUrl', () => {
 		});
 	});
 
-	it('reports cors-or-network on a non-200 response', async () => {
+	it('reports http-error (not cors-or-network) on a non-200 response', async () => {
 		const outcome = await grabUrl('https://example.com/song', {
 			fetchImpl: fakeFetch({ ok: false, status: 404, statusText: 'Not Found', text: '' })
 		});
 		expect(outcome.ok).toBe(false);
 		if (!outcome.ok) {
-			expect(outcome.reason).toBe('cors-or-network');
+			expect(outcome.reason).toBe('http-error');
 			expect(outcome.detail).toContain('404');
 		}
+	});
+
+	it('distinguishes http-error (server responded) from cors-or-network (fetch itself failed)', async () => {
+		const httpErrorOutcome = await grabUrl('https://example.com/song', {
+			fetchImpl: fakeFetch({ ok: false, status: 404, statusText: 'Not Found', text: '' })
+		});
+		const networkErrorOutcome = await grabUrl('https://example.com/song', {
+			fetchImpl: async () => {
+				throw new TypeError('Failed to fetch');
+			}
+		});
+
+		expect(httpErrorOutcome).toMatchObject({ ok: false, reason: 'http-error' });
+		expect(networkErrorOutcome).toMatchObject({ ok: false, reason: 'cors-or-network' });
 	});
 
 	it('reports unsupported-site for Ultimate Guitar without fetching', async () => {

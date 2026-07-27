@@ -7,6 +7,12 @@
  * and no distinguishing detail) the caller falls back to the guided-paste
  * flow, which reuses this same module's `grabFromHtml`.
  *
+ * `cors-or-network` is reserved strictly for that caught-`TypeError` case.
+ * A response that comes back non-2xx (404, 500, …) means the request itself
+ * succeeded — CORS didn't block it — so it's reported as `http-error`
+ * instead; routing a typo'd/broken link to "try pasting the page instead"
+ * would be misleading, since pasting won't fix a 404.
+ *
  * Rate-gentleness (docs/licensing-and-content.md item 3): one fetch per
  * `grabUrl` call, no retries. We don't spoof a `User-Agent` — browsers
  * control that header and reject attempts to set it from `fetch`; the
@@ -17,7 +23,8 @@ import { buildGrabResult } from './pipeline';
 import { resolveAdapter } from './registry';
 import type { GrabResult } from './types';
 
-export type GrabFailureReason = 'cors-or-network' | 'unsupported-site' | 'no-chart-found';
+export type GrabFailureReason =
+	'cors-or-network' | 'http-error' | 'unsupported-site' | 'no-chart-found';
 
 export type GrabOutcome =
 	{ ok: true; result: GrabResult } | { ok: false; reason: GrabFailureReason; detail?: string };
@@ -64,6 +71,9 @@ function extractOutcome(html: string, url: string): GrabOutcome {
  * Fetch `url` and run it through the grab pipeline. Direct fetch only, no
  * proxy — a `fetch` `TypeError` (the CORS failure signature browsers give)
  * is reported as `cors-or-network` so callers can route to the paste flow.
+ * A non-2xx response (the request succeeded, the server said no) is
+ * reported as `http-error` instead — CORS/network already worked, so the
+ * paste-flow suggestion wouldn't help.
  */
 export async function grabUrl(url: string, opts: GrabUrlOptions = {}): Promise<GrabOutcome> {
 	const lookup = resolveAdapter(url);
@@ -89,7 +99,7 @@ export async function grabUrl(url: string, opts: GrabUrlOptions = {}): Promise<G
 	if (!response.ok) {
 		return {
 			ok: false,
-			reason: 'cors-or-network',
+			reason: 'http-error',
 			detail: `HTTP ${response.status} ${response.statusText}`
 		};
 	}
