@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import LibraryBig from '@lucide/svelte/icons/library-big';
 	import EllipsisVertical from '@lucide/svelte/icons/ellipsis-vertical';
 	import { goto } from '$app/navigation';
@@ -64,21 +65,32 @@
 		const currentSort = sort;
 		const query = debouncedQuery.trim();
 
-		const handle = createLiveQuery(async () => {
-			const entries = await listSongsWithDefaultPattern(currentSort);
-			const rows = entries.map((entry) => ({
-				id: entry.song.id,
-				title: entry.song.title,
-				subtitle: formatSongSubtitle(
-					entry.song.authors,
-					entry.preferredPattern ? formatPatternSummary(entry.preferredPattern) : undefined
-				)
-			}));
-			if (!query) return rows;
-			const matches = await searchSongs(query);
-			const matchIds = new Set(matches.map((song) => song.id));
-			return rows.filter((row) => matchIds.has(row.id));
-		}, listHandle?.value);
+		// `untrack` here is load-bearing, not decorative: this effect *writes*
+		// `listHandle` below, so an untracked read of `listHandle?.value` seeds
+		// the new query's initial value from the previous one (per the comment
+		// above) without also making `listHandle` one of this effect's own
+		// dependencies — otherwise every run's `listHandle = handle` write
+		// would immediately re-trigger this same effect, forever (Svelte's
+		// `effect_update_depth_exceeded`, hit while testing task C2's e2e
+		// suite: the library screen never got past its loading state).
+		const handle = createLiveQuery(
+			async () => {
+				const entries = await listSongsWithDefaultPattern(currentSort);
+				const rows = entries.map((entry) => ({
+					id: entry.song.id,
+					title: entry.song.title,
+					subtitle: formatSongSubtitle(
+						entry.song.authors,
+						entry.preferredPattern ? formatPatternSummary(entry.preferredPattern) : undefined
+					)
+				}));
+				if (!query) return rows;
+				const matches = await searchSongs(query);
+				const matchIds = new Set(matches.map((song) => song.id));
+				return rows.filter((row) => matchIds.has(row.id));
+			},
+			untrack(() => listHandle?.value)
+		);
 
 		listHandle = handle;
 		return () => handle.destroy();

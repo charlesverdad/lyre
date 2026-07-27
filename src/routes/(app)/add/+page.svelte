@@ -48,8 +48,21 @@
 
 	// Re-sync the key picker + pattern-derived fields whenever a *new* parse
 	// happens, unless the user already overrode the key by hand.
+	//
+	// The equality guard below is load-bearing, not just an optimization:
+	// this effect reads `form` (to spread it) whenever it actually runs past
+	// the first guard, which makes `form` one of its reactive dependencies —
+	// so *any* later edit to `form` (e.g. typing the title) re-triggers this
+	// same effect. Without the `sourceKey` check it would then unconditionally
+	// reassign `form` to a new object every time, which re-triggers itself
+	// forever and blows Svelte's `effect_update_depth_exceeded` guard (and,
+	// short of that crash, would spin the CPU) — silently breaking the whole
+	// form the moment a header-derived source key differs from the default
+	// and the user starts typing. Bailing once `sourceKey` already matches
+	// keeps the dependency but makes the repeat runs no-ops.
 	$effect(() => {
 		if (!parseState || keyManuallySet) return;
+		if (form.sourceKey === parseState.sourceKey) return;
 		form = { ...form, sourceKey: parseState.sourceKey };
 	});
 
