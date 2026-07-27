@@ -92,11 +92,8 @@
 		saveSortPreference(next);
 	}
 
-	// /song/[id] (task B3) doesn't exist yet, so $app/paths#resolve can't
-	// type-check it — plain goto() is the documented escape hatch until then.
 	function goToSong(id: string) {
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(`/song/${id}`);
+		goto(resolve('/(app)/song/[songId]', { songId: id }));
 	}
 
 	function openDeleteSheet(row: LibraryRow, event: Event) {

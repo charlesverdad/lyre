@@ -42,6 +42,16 @@ function initialPattern(
 }
 
 /**
+ * "John Newton — via pnwchords.com" (or just "via pnwchords.com" when the
+ * page didn't state an artist) — the attribution line shown both in the
+ * saved chart record and next to the add-page's grab preview
+ * ("from pnwchords.com ↗", task C1).
+ */
+export function formatSourceAttribution(artist: string | undefined, sourceSite: string): string {
+	return artist ? `${artist} — via ${sourceSite}` : `via ${sourceSite}`;
+}
+
+/**
  * Map a `GrabResult` to `createSong`'s input shape (src/lib/db/repo.ts):
  * chart stored as ChordPro (task A2 serializer), `rawGrabbedText` preserves
  * the original grabbed text verbatim so edits stay an overlay, and the
@@ -57,9 +67,7 @@ export function grabResultToSongInput(result: GrabResult): CreateSongInput {
 	const chordproSource = chartDocToChordPro(doc);
 	const pattern = initialPattern(doc, result.header);
 
-	const sourceAttribution = result.artist
-		? `${result.artist} — via ${result.sourceSite}`
-		: `via ${result.sourceSite}`;
+	const sourceAttribution = formatSourceAttribution(result.artist, result.sourceSite);
 
 	return {
 		song: {

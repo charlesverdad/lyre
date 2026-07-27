@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Button from '$lib/ui/Button.svelte';
 	import ChartPreview from '$lib/ui/ChartPreview.svelte';
 	import MetadataForm from '$lib/ui/MetadataForm.svelte';
@@ -12,8 +13,17 @@
 		emptyMetadataForm,
 		type MetadataFormValues
 	} from '$lib/addedit';
+	import { formatSourceAttribution, type GrabResult } from '$lib/grab';
 	import { formatPatternSummary } from '$lib/library/format';
-	import GrabPlaceholder from './GrabPlaceholder.svelte';
+	import GrabInput from './GrabInput.svelte';
+
+	interface GrabMeta {
+		sourceUrl: string;
+		sourceSite: string;
+		fetchedAt: string;
+		rawGrabbedText: string;
+		sourceAttribution: string;
+	}
 
 	let rawText = $state('');
 	let form = $state<MetadataFormValues>(emptyMetadataForm());
@@ -21,6 +31,12 @@
 	// one — after that, the picker stops following re-parses of `rawText`.
 	let keyManuallySet = $state(false);
 	let saving = $state(false);
+	// Set once a grab succeeds; carried through to `createSong` on save so the
+	// chart keeps its provenance (mvp-spec.md F2: "save with sourceUrl
+	// attribution and the raw text preserved"). Editing the paste box
+	// afterwards doesn't clear it — edits are an overlay, the grabbed text
+	// stays available as the "original".
+	let grabMeta = $state<GrabMeta | undefined>();
 
 	// `undefined` while the paste box is empty, so the empty-state hint only
 	// shows once the user has actually typed/pasted something.
@@ -48,17 +64,37 @@
 		form = next;
 	}
 
+	function onGrabbed(result: GrabResult) {
+		rawText = result.chartText;
+		keyManuallySet = false;
+		form = {
+			...form,
+			title: result.title ?? form.title,
+			authorsInput: result.artist ?? form.authorsInput
+		};
+		grabMeta = {
+			sourceUrl: result.sourceUrl,
+			sourceSite: result.sourceSite,
+			fetchedAt: result.fetchedAt,
+			rawGrabbedText: result.chartText,
+			sourceAttribution: formatSourceAttribution(result.artist, result.sourceSite)
+		};
+	}
+
 	async function save() {
 		if (!parseState || !canSave) return;
 		saving = true;
 		try {
 			const input = buildCreateSongInput(form, parseState.doc, parseState.initialPattern);
+			if (grabMeta) {
+				input.chart.sourceUrl = grabMeta.sourceUrl;
+				input.chart.sourceSite = grabMeta.sourceSite;
+				input.chart.fetchedAt = grabMeta.fetchedAt;
+				input.chart.rawGrabbedText = grabMeta.rawGrabbedText;
+				input.chart.sourceAttribution = grabMeta.sourceAttribution;
+			}
 			const result = await createSong(input);
-			// /song/[id] (task B3) doesn't exist yet, so $app/paths#resolve can't
-			// type-check it — plain goto() is the documented escape hatch
-			// (see src/routes/(app)/library/+page.svelte).
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(`/song/${result.song.id}`);
+			await goto(resolve('/(app)/song/[songId]', { songId: result.song.id }));
 		} finally {
 			saving = false;
 		}
@@ -72,7 +108,18 @@
 <TopBar title="Add" />
 
 <div class="flex flex-col gap-6 px-4 pb-8">
-	<GrabPlaceholder />
+	<GrabInput ongrabbed={onGrabbed} />
+
+	{#if grabMeta}
+		<a
+			href={grabMeta.sourceUrl}
+			target="_blank"
+			rel="noopener noreferrer"
+			class="-mt-4 w-fit text-[13px] text-ink-2 underline underline-offset-2"
+		>
+			from {grabMeta.sourceSite} ↗
+		</a>
+	{/if}
 
 	<div class="flex items-center gap-3">
 		<div class="h-px flex-1 bg-line"></div>
