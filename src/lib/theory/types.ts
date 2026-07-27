@@ -74,6 +74,12 @@ export interface SongRecord {
 	topics: string[];
 	createdAt: string;
 	updatedAt: string;
+	/**
+	 * ISO timestamp of the last time this song was opened in play mode.
+	 * Optional/additive (task A3 data layer): powers the "recently played"
+	 * library sort (mvp-spec.md F1); absent until the first play.
+	 */
+	lastPlayedAt?: string;
 }
 
 /** A chord-over-lyrics document belonging to a Song (domain-model.md §5). */
