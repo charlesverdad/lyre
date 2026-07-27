@@ -139,6 +139,65 @@ export async function listSongs(
 	}
 }
 
+export interface SongListEntry {
+	song: SongRecord;
+	/** The chart the library row summarizes: named "Default", else the earliest-created chart. */
+	defaultChart?: ChartRecord;
+	/** `defaultChart`'s preferred pattern, if it has one yet. */
+	preferredPattern?: PatternRecord;
+}
+
+/**
+ * List songs (per `sort`) alongside each one's default chart and that
+ * chart's preferred pattern — everything the Library row needs (F1: title,
+ * authors, pattern summary like "G shapes · capo 2 · A").
+ *
+ * Batched in a fixed number of queries regardless of library size (one
+ * `listSongs` scan + one `anyOf` chart lookup + one `anyOf` pattern lookup)
+ * rather than querying per song, so the row list stays cheap as the library
+ * grows.
+ */
+export async function listSongsWithDefaultPattern(
+	sort: SongSort = 'alpha',
+	database: LyreDatabase = defaultDb
+): Promise<SongListEntry[]> {
+	const songs = await listSongs(sort, database);
+	if (songs.length === 0) return [];
+
+	const songIds = songs.map((song) => song.id);
+	const charts = await database.charts.where('songId').anyOf(songIds).toArray();
+
+	const chartsBySong = new Map<string, ChartRecord[]>();
+	for (const chart of charts) {
+		const existing = chartsBySong.get(chart.songId);
+		if (existing) existing.push(chart);
+		else chartsBySong.set(chart.songId, [chart]);
+	}
+
+	const defaultChartBySong = new Map<string, ChartRecord>();
+	for (const [songId, songCharts] of chartsBySong) {
+		const defaultChart =
+			songCharts.find((chart) => chart.name === 'Default') ??
+			[...songCharts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+		defaultChartBySong.set(songId, defaultChart);
+	}
+
+	const defaultChartIds = [...defaultChartBySong.values()].map((chart) => chart.id);
+	const patterns =
+		defaultChartIds.length > 0
+			? await database.patterns.where('chartId').anyOf(defaultChartIds).toArray()
+			: [];
+	const preferredByChart = new Map(
+		patterns.filter((pattern) => pattern.isPreferred).map((pattern) => [pattern.chartId, pattern])
+	);
+
+	return songs.map((song) => {
+		const defaultChart = defaultChartBySong.get(song.id);
+		const preferredPattern = defaultChart ? preferredByChart.get(defaultChart.id) : undefined;
+		return { song, defaultChart, preferredPattern };
+	});
+}
+
 /**
  * Client-side substring search over title/authors/lyrics (F1: "instant
  * client-side search"). Case-insensitive. Lyrics search reads each song's
