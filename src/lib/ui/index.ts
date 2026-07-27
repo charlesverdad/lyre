@@ -2,8 +2,11 @@
 // imports from here in app code; `src/lib/index.ts` re-exports this module.
 export { default as Badge } from './Badge.svelte';
 export { default as Button } from './Button.svelte';
+export { default as ChartPreview } from './ChartPreview.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
+export { default as KeyPicker } from './KeyPicker.svelte';
 export { default as ListItem } from './ListItem.svelte';
+export { default as MetadataForm } from './MetadataForm.svelte';
 export { default as SearchBar } from './SearchBar.svelte';
 export { default as Sheet } from './Sheet.svelte';
 export { default as TabBar } from './TabBar.svelte';
