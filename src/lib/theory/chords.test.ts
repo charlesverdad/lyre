@@ -38,6 +38,17 @@ describe('parseChordToken', () => {
 		expect(parseChordToken('D7sus4')).toEqual({ root: 2, quality: '7sus4' });
 	});
 
+	it('does not treat bare "o" as a diminished-quality alias', () => {
+		// "Go" and "Do" are common English words/lyrics ("Go tell it on the
+		// mountain"); a bare "o" -> dim alias would misparse them as chords.
+		// "o" is only meaningful immediately before a digit (o7 -> dim7).
+		expect(parseChordToken('Go')).toBeNull();
+		expect(parseChordToken('Do')).toBeNull();
+		expect(parseChordToken('Co7')).toEqual({ root: 0, quality: 'dim7' });
+		expect(parseChordToken('Gdim')).toEqual({ root: 7, quality: 'dim' });
+		expect(parseChordToken('G°')).toEqual({ root: 7, quality: 'dim' });
+	});
+
 	it('parses slash chords', () => {
 		expect(parseChordToken('G/B')).toEqual({ root: 7, quality: '', bass: 11 });
 		expect(parseChordToken('D/F#')).toEqual({ root: 2, quality: '', bass: 6 });
