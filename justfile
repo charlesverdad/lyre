@@ -46,6 +46,15 @@ fmt-check:
 typecheck:
     pnpm run check
 
+# Regenerate PWA icon PNGs from static/icons/icon-source.svg.
+icons:
+    pnpm run icons
+
 # Full verification gate: lint + format check + typecheck + unit tests.
 # Must pass before any PR (see AGENTS.md).
 verify: lint fmt-check typecheck test
+
+# Run the Playwright e2e acceptance walkthrough (builds first; the config's
+# webServer also builds, but doing it here gives a clean failure earlier).
+e2e: build
+    pnpm exec playwright test

@@ -28,7 +28,12 @@
 	}
 }
 
-:root[data-theme='light'] {
+/*
+ * Not scoped to :root — this also lets a component force a theme on a
+ * sub-tree (e.g. the /dev/ui styleguide's side-by-side light/dark panels),
+ * since the custom properties inherit to descendants either way.
+ */
+[data-theme='light'] {
 	--color-bg: #ffffff;
 	--color-surface: #fafafa;
 	--color-ink: #0a0a0a;
@@ -37,7 +42,7 @@
 	--color-line: #e5e5e5;
 }
 
-:root[data-theme='dark'] {
+[data-theme='dark'] {
 	--color-bg: #000000;
 	--color-surface: #121212;
 	--color-ink: #f5f5f5;
@@ -49,4 +54,22 @@
 body {
 	background-color: var(--color-bg);
 	color: var(--color-ink);
+}
+
+/*
+ * Chord text style — docs/design.md "Type": semibold ui-monospace so chords
+ * align cleanly over lyrics. Combine with a size utility, e.g.
+ * `<span class="chord text-[15px]">`.
+ */
+.chord {
+	font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+	font-weight: 600;
+}
+
+/* Safe-area insets for notched / home-indicator devices (app shell chrome). */
+:root {
+	--safe-top: env(safe-area-inset-top, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	--safe-left: env(safe-area-inset-left, 0px);
+	--safe-right: env(safe-area-inset-right, 0px);
 }

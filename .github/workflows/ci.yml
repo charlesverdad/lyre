@@ -1,6 +1,10 @@
 name: CI
 
-# Runs the full `just verify` sequence plus a production build.
+# `ci`: the full `just verify` sequence plus a production build.
+# `e2e`: the Playwright acceptance walkthrough (task C2) against that build,
+# chromium only — a separate job so it can't block/slow down the fast
+# lint+typecheck+unit feedback loop, and so its (larger) browser cache is
+# independent of the `ci` job's dependency cache.
 # Nix is NOT used here — shell.nix is a local dev convenience; CI installs
 # tools directly (pnpm, Node, just) for speed.
 
@@ -41,3 +45,57 @@ jobs:
 
       - name: Build
         run: just build
+
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      # `--with-deps` also installs the OS packages Chromium needs to launch
+      # on a bare runner; `playwright install` itself is a no-op for browser
+      # binaries that are already present, so this is cheap on a cache hit.
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # `just e2e` (playwright.config.ts) builds and serves via `vite
+      # preview` itself — no separate build step needed here.
+      - name: Run e2e (chromium only)
+        run: just e2e
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

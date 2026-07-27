@@ -3,6 +3,18 @@ import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+// SvelteKit's `paths.base` type is `'' | \`/${string}\`` — narrow the env var
+// rather than casting, so a misconfigured `BASE_PATH` (missing leading
+// slash) fails loudly instead of silently producing broken asset URLs.
+function basePath(): '' | `/${string}` {
+	const raw = process.env.BASE_PATH;
+	if (!raw) return '';
+	if (!raw.startsWith('/')) {
+		throw new Error(`BASE_PATH must start with "/" (got ${JSON.stringify(raw)})`);
+	}
+	return raw as `/${string}`;
+}
+
 export default defineConfig({
 	plugins: [
 		tailwindcss(),
@@ -12,15 +24,18 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter({ fallback: 'index.html' })
+			adapter: adapter({ fallback: 'index.html' }),
+			// GitHub Pages serves the site from /lyre/ (see .github/workflows/deploy.yml,
+			// task C1); empty ('') for local dev and the CI verify build, where the
+			// site is served from the domain root. `BASE_PATH` must be unset or a
+			// leading-slash path (SvelteKit's own `paths.base` constraint).
+			paths: {
+				base: basePath()
+			}
 		})
 	],
 	test: {
 		expect: { requireAssertions: true },
-		// T0 bootstrap ships no test files yet (only type declarations and a
-		// placeholder page) — wave-1 tasks (A1-A4) add real unit tests under
-		// src/lib/**. Remove once tests exist.
-		passWithNoTests: true,
 		projects: [
 			{
 				extends: './vite.config.ts',

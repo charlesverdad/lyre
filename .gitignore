@@ -25,3 +25,8 @@ vite.config.ts.timestamp-*
 
 # Nix / direnv writable overlays
 .direnv/
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
