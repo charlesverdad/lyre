@@ -1,0 +1,132 @@
+/**
+ * Fetch pipeline (docs/PLAN-v0.1.md task B4; docs/mvp-spec.md F2's CORS
+ * note; docs/PLAN-v0.1.md "Grab-flow MVP decision"): direct client `fetch`
+ * first, no proxy/relay — the v0.1 policy is stateless-or-nothing, and a
+ * relay isn't stateless enough to be worth building yet. On CORS failure
+ * (the *only* way a browser signals it: `fetch` rejects with a `TypeError`
+ * and no distinguishing detail) the caller falls back to the guided-paste
+ * flow, which reuses this same module's `grabFromHtml`.
+ *
+ * Rate-gentleness (docs/licensing-and-content.md item 3): one fetch per
+ * `grabUrl` call, no retries. We don't spoof a `User-Agent` — browsers
+ * control that header and reject attempts to set it from `fetch`; the
+ * honest option is to just not try.
+ */
+
+import { buildGrabResult } from './pipeline';
+import { resolveAdapter } from './registry';
+import type { GrabResult } from './types';
+
+export type GrabFailureReason = 'cors-or-network' | 'unsupported-site' | 'no-chart-found';
+
+export type GrabOutcome =
+	{ ok: true; result: GrabResult } | { ok: false; reason: GrabFailureReason; detail?: string };
+
+export type FetchImpl = typeof fetch;
+
+export interface GrabUrlOptions {
+	/** Injectable `fetch` for tests; defaults to the global `fetch`. */
+	fetchImpl?: FetchImpl;
+}
+
+function nowIso(): string {
+	return new Date().toISOString();
+}
+
+/**
+ * Run the shared extract -> parse -> assemble pipeline against already-fetched
+ * `html`. Returns `no-chart-found` when the resolved adapter can't locate a
+ * chart in the page.
+ */
+function extractOutcome(html: string, url: string): GrabOutcome {
+	const lookup = resolveAdapter(url);
+	if (lookup.kind === 'excluded') {
+		return { ok: false, reason: lookup.error.reason, detail: lookup.error.message };
+	}
+
+	const extract = lookup.adapter.extract(html, url);
+	if (!extract || !extract.chartText.trim()) {
+		return { ok: false, reason: 'no-chart-found' };
+	}
+
+	let sourceSite: string;
+	try {
+		sourceSite = new URL(url).hostname;
+	} catch {
+		sourceSite = url;
+	}
+
+	const result = buildGrabResult(extract, { sourceUrl: url, sourceSite, fetchedAt: nowIso() });
+	return { ok: true, result };
+}
+
+/**
+ * Fetch `url` and run it through the grab pipeline. Direct fetch only, no
+ * proxy — a `fetch` `TypeError` (the CORS failure signature browsers give)
+ * is reported as `cors-or-network` so callers can route to the paste flow.
+ */
+export async function grabUrl(url: string, opts: GrabUrlOptions = {}): Promise<GrabOutcome> {
+	const lookup = resolveAdapter(url);
+	if (lookup.kind === 'excluded') {
+		return { ok: false, reason: lookup.error.reason, detail: lookup.error.message };
+	}
+
+	const doFetch = opts.fetchImpl ?? fetch;
+	let response: Response;
+	try {
+		response = await doFetch(url, { headers: { Accept: 'text/html' } });
+	} catch (err) {
+		// A browser `fetch` rejects with `TypeError: Failed to fetch` (or
+		// equivalent) for both CORS blocks and genuine network failures —
+		// there's no way to tell them apart from the client, hence the
+		// combined reason.
+		if (err instanceof TypeError) {
+			return { ok: false, reason: 'cors-or-network', detail: err.message };
+		}
+		throw err;
+	}
+
+	if (!response.ok) {
+		return {
+			ok: false,
+			reason: 'cors-or-network',
+			detail: `HTTP ${response.status} ${response.statusText}`
+		};
+	}
+
+	const html = await response.text();
+	return extractOutcome(html, url);
+}
+
+/**
+ * Same pipeline as `grabUrl` minus the fetch — for the guided-paste
+ * fallback, where the user pastes either the page's HTML source or just the
+ * copied chart text directly. If `html` has no HTML tags at all, it's
+ * treated as raw chart text (skips adapter extraction entirely, since
+ * there's no markup to extract from).
+ */
+export function grabFromHtml(html: string, url: string): GrabOutcome {
+	const looksLikeHtml = /<[a-z!][^>]*>/i.test(html);
+	if (!looksLikeHtml) {
+		// Raw pasted chart text, not markup — this *is* the sanctioned paste
+		// flow (docs/licensing-and-content.md item 4's escape hatch for sites
+		// like Ultimate Guitar that get no adapter), so the site-exclusion
+		// check below (which guards against running an adapter over excluded
+		// sites' HTML) doesn't apply here: there's no HTML to run an adapter
+		// against, just the text the user chose to type or paste in.
+		let sourceSite: string;
+		try {
+			sourceSite = new URL(url).hostname;
+		} catch {
+			sourceSite = url;
+		}
+		if (!html.trim()) return { ok: false, reason: 'no-chart-found' };
+		const result = buildGrabResult(
+			{ chartText: html },
+			{ sourceUrl: url, sourceSite, fetchedAt: nowIso() }
+		);
+		return { ok: true, result };
+	}
+
+	return extractOutcome(html, url);
+}
