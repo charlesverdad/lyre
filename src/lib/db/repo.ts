@@ -272,6 +272,14 @@ export async function setPreferredPattern(
 }
 
 export interface SavePatternInput {
+	/**
+	 * When set and it matches an existing pattern's id, that pattern is
+	 * updated in place instead of inserting a new row — the upsert path used
+	 * by "Save as my pattern" (task B3) so repeatedly re-saving over the same
+	 * preferred pattern doesn't accumulate orphaned rows. Omit (or pass an id
+	 * that doesn't exist yet) to insert a genuinely new pattern.
+	 */
+	id?: string;
 	chartId: string;
 	label: string;
 	soundingKey: string;
@@ -284,8 +292,9 @@ export interface SavePatternInput {
 }
 
 /**
- * Insert a new pattern for a chart. If `isPreferred` is set (or this is the
- * chart's first pattern), enforces the exactly-one-preferred invariant.
+ * Insert a new pattern for a chart, or update one in place when `input.id`
+ * matches an existing pattern (upsert). If `isPreferred` is set (or this is
+ * the chart's first pattern), enforces the exactly-one-preferred invariant.
  */
 export async function savePattern(
 	input: SavePatternInput,
@@ -293,13 +302,20 @@ export async function savePattern(
 ): Promise<PatternRecord> {
 	return database.transaction('rw', database.patterns, async () => {
 		const siblings = await database.patterns.where('chartId').equals(input.chartId).toArray();
+		const existing = input.id
+			? (siblings.find((sibling) => sibling.id === input.id) ?? null)
+			: null;
+
 		// A chart's first pattern is always preferred, regardless of what the
 		// caller passes — otherwise the chart would have zero preferred
-		// patterns, violating the exactly-one-preferred invariant.
-		const shouldBePreferred = siblings.length === 0 ? true : (input.isPreferred ?? false);
+		// patterns, violating the exactly-one-preferred invariant. An upsert
+		// that's already the only pattern (updating itself) counts as "no
+		// other siblings" for this purpose too.
+		const otherSiblings = existing ? siblings.filter((s) => s.id !== existing.id) : siblings;
+		const shouldBePreferred = otherSiblings.length === 0 ? true : (input.isPreferred ?? false);
 
 		const pattern: PatternRecord = {
-			id: newId(),
+			id: existing?.id ?? newId(),
 			chartId: input.chartId,
 			label: input.label,
 			soundingKey: input.soundingKey,
@@ -312,13 +328,13 @@ export async function savePattern(
 
 		if (shouldBePreferred) {
 			await Promise.all(
-				siblings
+				otherSiblings
 					.filter((sibling) => sibling.isPreferred)
 					.map((sibling) => database.patterns.update(sibling.id, { isPreferred: false }))
 			);
 		}
 
-		await database.patterns.add(pattern);
+		await database.patterns.put(pattern);
 		return pattern;
 	});
 }

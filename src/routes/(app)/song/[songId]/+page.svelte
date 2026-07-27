@@ -165,6 +165,11 @@
 		if (!session || !chart) return;
 		const draft = session.draft;
 		const record = await savePattern({
+			// Update the current preferred pattern in place rather than
+			// inserting a new row each time (repo.ts `savePattern` upserts on
+			// `id`) — otherwise every "Save as my pattern" tap would leave
+			// behind an orphaned, no-longer-preferred pattern row.
+			id: preferredPattern?.id,
 			chartId: chart.id,
 			label: preferredPattern?.label ?? 'My usual',
 			soundingKey: draft.soundingKey,

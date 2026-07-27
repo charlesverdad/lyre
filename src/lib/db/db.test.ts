@@ -205,6 +205,93 @@ describe('preferred pattern invariant', () => {
 		expect(reloadedP1?.isPreferred).toBe(false);
 		expect(reloadedP2?.isPreferred).toBe(true);
 	});
+
+	it('savePattern with an existing id updates that pattern in place instead of inserting', async () => {
+		const { chart } = await createSong({ song: songInput(), chart: chartInput() }, db);
+		const original = await savePattern(
+			{ chartId: chart.id, label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: 2 },
+			db
+		);
+
+		const updated = await savePattern(
+			{
+				id: original.id,
+				chartId: chart.id,
+				label: 'My usual',
+				soundingKey: 'Bb',
+				shapeKey: 'A',
+				capo: 1,
+				isPreferred: true
+			},
+			db
+		);
+
+		expect(updated.id).toBe(original.id);
+		const all = await db.patterns.where('chartId').equals(chart.id).toArray();
+		expect(all).toHaveLength(1);
+		expect(all[0]).toMatchObject({ id: original.id, soundingKey: 'Bb', shapeKey: 'A', capo: 1 });
+	});
+
+	it('repeated "save as my pattern" upserts leave exactly one pattern row for the chart', async () => {
+		const { chart } = await createSong({ song: songInput(), chart: chartInput() }, db);
+
+		let preferredId: string | undefined;
+		for (const draft of [
+			{ soundingKey: 'A', shapeKey: 'G', capo: 2 },
+			{ soundingKey: 'Bb', shapeKey: 'G', capo: 3 },
+			{ soundingKey: 'B', shapeKey: 'G', capo: 4 }
+		]) {
+			const saved = await savePattern(
+				{
+					id: preferredId,
+					chartId: chart.id,
+					label: 'My usual',
+					...draft,
+					isPreferred: true
+				},
+				db
+			);
+			preferredId = saved.id;
+		}
+
+		const all = await db.patterns.where('chartId').equals(chart.id).toArray();
+		expect(all).toHaveLength(1);
+		expect(all[0]).toMatchObject({ soundingKey: 'B', shapeKey: 'G', capo: 4, isPreferred: true });
+	});
+
+	it('upserting a non-preferred pattern to preferred still demotes the other preferred pattern', async () => {
+		const { chart } = await createSong({ song: songInput(), chart: chartInput() }, db);
+		const p1 = await savePattern(
+			{ chartId: chart.id, label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: 2 },
+			db
+		);
+		const p2 = await savePattern(
+			{ chartId: chart.id, label: 'With Sarah', soundingKey: 'G', shapeKey: 'G', capo: 0 },
+			db
+		);
+		expect((await db.patterns.get(p2.id))?.isPreferred).toBe(false);
+
+		const updatedP2 = await savePattern(
+			{
+				id: p2.id,
+				chartId: chart.id,
+				label: 'With Sarah',
+				soundingKey: 'G',
+				shapeKey: 'G',
+				capo: 0,
+				isPreferred: true
+			},
+			db
+		);
+
+		expect(updatedP2.id).toBe(p2.id);
+		const reloadedP1 = await db.patterns.get(p1.id);
+		const reloadedP2 = await db.patterns.get(p2.id);
+		expect(reloadedP1?.isPreferred).toBe(false);
+		expect(reloadedP2?.isPreferred).toBe(true);
+		const all = await db.patterns.where('chartId').equals(chart.id).toArray();
+		expect(all).toHaveLength(2);
+	});
 });
 
 describe('getSongWithDetails', () => {
