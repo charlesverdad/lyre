@@ -1,4 +1,5 @@
-.claude/
+.claude/*
+!.claude/LEARNINGS.md
 node_modules/
 
 # Output
