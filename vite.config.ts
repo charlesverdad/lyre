@@ -17,10 +17,6 @@ export default defineConfig({
 	],
 	test: {
 		expect: { requireAssertions: true },
-		// T0 bootstrap ships no test files yet (only type declarations and a
-		// placeholder page) — wave-1 tasks (A1-A4) add real unit tests under
-		// src/lib/**. Remove once tests exist.
-		passWithNoTests: true,
 		projects: [
 			{
 				extends: './vite.config.ts',
