@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { chartDocToChordPro, parseChart } from '$lib/chart';
 import { renderChord } from '$lib/theory/chords';
 import { canSaveChart, deriveChartParseState } from './parseState';
 
@@ -49,6 +50,24 @@ describe('deriveChartParseState', () => {
 	it('is a no-op when the override matches the already-inferred key', () => {
 		const state = deriveChartParseState(PLAIN_CHART, 'C');
 		expect(state.sourceKey).toBe('C');
+	});
+
+	it('reparses a ChordPro chart carrying its own {key:} header under an override (edit-flow shape)', () => {
+		// The edit screen seeds its textarea from `chart.chordproSource`, which
+		// is always round-tripped ChordPro with an explicit {key:} line
+		// (chartDocToChordPro always emits one) — the override must win over
+		// that embedded header, not be silently clobbered by it.
+		const { doc: original } = parseChart(PLAIN_CHART);
+		const chordproSource = chartDocToChordPro(original);
+		expect(chordproSource).toContain(`{key: ${original.sourceKey}}`);
+
+		const state = deriveChartParseState(chordproSource, 'A');
+		expect(state.sourceKey).toBe('A');
+		expect(state.doc.sourceKey).toBe('A');
+		const rendered = state.doc.sections[0].lines
+			.flatMap((line) => line.chords)
+			.map((c) => renderChord(c.chord, state.sourceKey));
+		expect(rendered).toEqual(['G', 'C']);
 	});
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseChart } from '$lib/chart';
+import { chartDocToChordPro, parseChart } from '$lib/chart';
 import type { ChartRecord, SongRecord } from '$lib/theory/types';
+import { deriveChartParseState } from './parseState';
 import {
 	buildChartUpdatePatch,
 	buildCreateSongInput,
@@ -92,6 +93,48 @@ describe('buildSongUpdatePatch / buildChartUpdatePatch', () => {
 		const chartPatch = buildChartUpdatePatch(doc);
 		expect(chartPatch.sourceKey).toBe(doc.sourceKey);
 		expect(chartPatch.chordproSource?.replace(/\[[^\]]*\]/g, '')).toContain('Amazing grace');
+	});
+});
+
+describe('edit-flow key correction stays consistent (regression: PR #8 review)', () => {
+	it('keeps chart.sourceKey and song.defaultKey in sync after correcting the key picker', () => {
+		// Simulates the edit screen: seed the textarea from a round-tripped
+		// ChordPro source (always carries its own {key:} header), then correct
+		// the key picker to a different value.
+		const seedText = chartDocToChordPro(doc);
+		const corrected = deriveChartParseState(seedText, 'A');
+
+		const form = {
+			...metadataFormFromRecords(
+				{
+					id: 's1',
+					title: 'Amazing Grace',
+					aliases: [],
+					authors: [],
+					defaultKey: doc.sourceKey,
+					topics: [],
+					createdAt: '2024-01-01T00:00:00.000Z',
+					updatedAt: '2024-01-01T00:00:00.000Z'
+				},
+				{
+					id: 'c1',
+					songId: 's1',
+					name: 'Default',
+					chordproSource: seedText,
+					sourceKey: doc.sourceKey,
+					createdAt: '2024-01-01T00:00:00.000Z',
+					updatedAt: '2024-01-01T00:00:00.000Z'
+				}
+			),
+			sourceKey: corrected.sourceKey
+		};
+
+		const songPatch = buildSongUpdatePatch(form);
+		const chartPatch = buildChartUpdatePatch(corrected.doc);
+
+		expect(chartPatch.sourceKey).toBe('A');
+		expect(songPatch.defaultKey).toBe('A');
+		expect(chartPatch.sourceKey).toBe(songPatch.defaultKey);
 	});
 });
 
