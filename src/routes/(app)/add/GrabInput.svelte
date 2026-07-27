@@ -11,7 +11,13 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Button from '$lib/ui/Button.svelte';
 	import Sheet from '$lib/ui/Sheet.svelte';
-	import { grabFromHtml, grabUrl, type GrabFailureReason, type GrabResult } from '$lib/grab';
+	import {
+		grabFromHtml,
+		grabUrl,
+		safeHttpUrl,
+		type GrabFailureReason,
+		type GrabResult
+	} from '$lib/grab';
 
 	interface Props {
 		ongrabbed: (result: GrabResult) => void;
@@ -45,6 +51,8 @@
 				return "Couldn't find a chart on that page — check the link, or paste the chart text below.";
 			case 'cors-or-network':
 				return "Couldn't fetch that page automatically — paste it in below instead.";
+			case 'invalid-url':
+				return "That doesn't look like a web address — paste an http(s) link.";
 		}
 	}
 
@@ -140,9 +148,9 @@
 			Open the page in your browser → select all → copy → paste the page source or the chart text
 			below.
 		</p>
-		{#if url.trim()}
+		{#if safeHttpUrl(url.trim())}
 			<a
-				href={url.trim()}
+				href={safeHttpUrl(url.trim())}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex w-fit items-center gap-1 text-[13px] font-semibold text-ink underline underline-offset-2"

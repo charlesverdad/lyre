@@ -13,7 +13,7 @@
 		emptyMetadataForm,
 		type MetadataFormValues
 	} from '$lib/addedit';
-	import { formatSourceAttribution, type GrabResult } from '$lib/grab';
+	import { formatSourceAttribution, safeHttpUrl, type GrabResult } from '$lib/grab';
 	import { formatPatternSummary } from '$lib/library/format';
 	import GrabInput from './GrabInput.svelte';
 
@@ -124,14 +124,19 @@
 	<GrabInput ongrabbed={onGrabbed} />
 
 	{#if grabMeta}
-		<a
-			href={grabMeta.sourceUrl}
-			target="_blank"
-			rel="noopener noreferrer"
-			class="-mt-4 w-fit text-[13px] text-ink-2 underline underline-offset-2"
-		>
-			from {grabMeta.sourceSite} ↗
-		</a>
+		{@const safeUrl = safeHttpUrl(grabMeta.sourceUrl)}
+		{#if safeUrl}
+			<a
+				href={safeUrl}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="-mt-4 w-fit text-[13px] text-ink-2 underline underline-offset-2"
+			>
+				from {grabMeta.sourceSite} ↗
+			</a>
+		{:else}
+			<span class="-mt-4 w-fit text-[13px] text-ink-2">from {grabMeta.sourceSite}</span>
+		{/if}
 	{/if}
 
 	<div class="flex items-center gap-3">

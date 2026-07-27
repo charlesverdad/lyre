@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { grabFromHtml, grabUrl } from './fetcher';
+import { grabFromHtml, grabUrl, safeHttpUrl } from './fetcher';
 
 // Chart body throughout is Amazing Grace (public domain) — see
 // docs/licensing-and-content.md.
@@ -107,6 +107,47 @@ describe('grabUrl', () => {
 		});
 		expect(outcome).toEqual({ ok: false, reason: 'no-chart-found' });
 	});
+
+	// SEC1: javascript:-scheme URL XSS. A `javascript:` URL used to fail
+	// `fetch` with a `TypeError` (mapped to `cors-or-network`), which
+	// auto-opens the guided-paste sheet's "Open the page" link in the UI —
+	// clicking it ran attacker script in-origin. `fetchImpl` must never even
+	// be called for a non-http(s) URL.
+	it('rejects a javascript: URL as invalid-url without calling fetch', async () => {
+		let called = false;
+		const outcome = await grabUrl('javascript:alert(1)', {
+			fetchImpl: async () => {
+				called = true;
+				throw new Error('should not be called');
+			}
+		});
+		expect(called).toBe(false);
+		expect(outcome).toEqual({ ok: false, reason: 'invalid-url' });
+	});
+
+	it('rejects a data: URL as invalid-url without calling fetch', async () => {
+		let called = false;
+		const outcome = await grabUrl('data:text/html,<script>alert(1)</script>', {
+			fetchImpl: async () => {
+				called = true;
+				throw new Error('should not be called');
+			}
+		});
+		expect(called).toBe(false);
+		expect(outcome).toEqual({ ok: false, reason: 'invalid-url' });
+	});
+
+	it('rejects a non-URL string as invalid-url without calling fetch', async () => {
+		let called = false;
+		const outcome = await grabUrl('not a url', {
+			fetchImpl: async () => {
+				called = true;
+				throw new Error('should not be called');
+			}
+		});
+		expect(called).toBe(false);
+		expect(outcome).toEqual({ ok: false, reason: 'invalid-url' });
+	});
 });
 
 describe('grabFromHtml', () => {
@@ -152,5 +193,25 @@ describe('grabFromHtml', () => {
 			reason: 'unsupported-site',
 			detail: expect.stringMatching(/paste/i)
 		});
+	});
+
+	it('rejects a javascript: URL as invalid-url even for plain pasted text', () => {
+		const outcome = grabFromHtml('G\nAmazing grace', 'javascript:alert(1)');
+		expect(outcome).toEqual({ ok: false, reason: 'invalid-url' });
+	});
+});
+
+describe('safeHttpUrl', () => {
+	it('passes through http and https URLs', () => {
+		expect(safeHttpUrl('http://example.com')).toBe('http://example.com');
+		expect(safeHttpUrl('https://example.com/song')).toBe('https://example.com/song');
+	});
+
+	it('rejects javascript:, data:, vbscript:, and unparseable strings', () => {
+		expect(safeHttpUrl('javascript:alert(1)')).toBeUndefined();
+		expect(safeHttpUrl('data:text/html,<script>alert(1)</script>')).toBeUndefined();
+		expect(safeHttpUrl('vbscript:msgbox(1)')).toBeUndefined();
+		expect(safeHttpUrl('not a url')).toBeUndefined();
+		expect(safeHttpUrl('')).toBeUndefined();
 	});
 });
