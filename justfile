@@ -46,6 +46,10 @@ fmt-check:
 typecheck:
     pnpm run check
 
+# Regenerate PWA icon PNGs from static/icons/icon-source.svg.
+icons:
+    pnpm run icons
+
 # Full verification gate: lint + format check + typecheck + unit tests.
 # Must pass before any PR (see AGENTS.md).
 verify: lint fmt-check typecheck test

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Button from '$lib/ui/Button.svelte';
 	import ChartPreview from '$lib/ui/ChartPreview.svelte';
@@ -88,11 +89,7 @@
 		try {
 			await updateSong(song.id, buildSongUpdatePatch(form));
 			await updateChart(chart.id, buildChartUpdatePatch(parseState.doc));
-			// /song/[id] (task B3) doesn't exist yet, so $app/paths#resolve can't
-			// type-check it — plain goto() is the documented escape hatch
-			// (see src/routes/(app)/library/+page.svelte).
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(`/song/${song.id}`);
+			await goto(resolve('/(app)/song/[songId]', { songId: song.id }));
 		} finally {
 			saving = false;
 		}
@@ -100,8 +97,7 @@
 
 	function cancel() {
 		if (!song) return;
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(`/song/${song.id}`);
+		goto(resolve('/(app)/song/[songId]', { songId: song.id }));
 	}
 </script>
 

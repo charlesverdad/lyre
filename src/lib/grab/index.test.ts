@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buildGrabResult, grabResultToSongInput } from './index';
+import { buildGrabResult, formatSourceAttribution, grabResultToSongInput } from './index';
+
+describe('formatSourceAttribution', () => {
+	it('includes the artist when known', () => {
+		expect(formatSourceAttribution('John Newton', 'pnwchords.com')).toBe(
+			'John Newton — via pnwchords.com'
+		);
+	});
+
+	it('falls back to just the site when there is no artist', () => {
+		expect(formatSourceAttribution(undefined, 'example.com')).toBe('via example.com');
+	});
+});
 
 // Chart body throughout is Amazing Grace (public domain) — see
 // docs/licensing-and-content.md.
