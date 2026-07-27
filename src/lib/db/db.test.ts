@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LyreDatabase } from './schema';
 import { createTestDatabase } from './schema';
 import {
@@ -7,6 +7,7 @@ import {
 	deleteSong,
 	getSongWithDetails,
 	listSongs,
+	listSongsWithDefaultPattern,
 	savePattern,
 	searchSongs,
 	setPreferredPattern,
@@ -268,6 +269,104 @@ describe('listSongs sort orders', () => {
 
 		const songs = await listSongs('recentlyPlayed', db);
 		expect(songs.map((s) => s.id)).toEqual([apple.id, zebra.id, mango.id]);
+	});
+});
+
+describe('listSongsWithDefaultPattern', () => {
+	it('returns undefined chart/pattern for a song with no charts or patterns', async () => {
+		await createSong({ song: songInput({ title: 'No Pattern Yet' }), chart: chartInput() }, db);
+
+		const [entry] = await listSongsWithDefaultPattern('alpha', db);
+
+		expect(entry.song.title).toBe('No Pattern Yet');
+		expect(entry.defaultChart).toBeDefined();
+		expect(entry.preferredPattern).toBeUndefined();
+	});
+
+	it('picks the preferred pattern of the chart named "Default"', async () => {
+		const { song, chart } = await createSong(
+			{
+				song: songInput({ title: 'Goodness of God' }),
+				chart: chartInput({ name: 'Default' }),
+				pattern: { label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: 2 }
+			},
+			db
+		);
+		// A second, non-preferred pattern on the same chart must not win.
+		await savePattern(
+			{ chartId: chart.id, label: 'With Sarah', soundingKey: 'G', shapeKey: 'G', capo: 0 },
+			db
+		);
+		// A second chart (an alternate arrangement) must not be picked over "Default".
+		await database_addAlternateChart(song.id);
+
+		const [entry] = await listSongsWithDefaultPattern('alpha', db);
+
+		expect(entry.defaultChart?.id).toBe(chart.id);
+		expect(entry.preferredPattern?.label).toBe('My usual');
+	});
+
+	async function database_addAlternateChart(songId: string) {
+		await db.charts.add({
+			id: crypto.randomUUID(),
+			songId,
+			name: 'Acoustic',
+			chordproSource: '{title: Alt}\n[C]Alt',
+			sourceKey: 'C',
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString()
+		});
+	}
+
+	it('falls back to the earliest-created chart when none is named "Default"', async () => {
+		const { song, chart: firstChart } = await createSong(
+			{ song: songInput({ title: 'Two Charts' }), chart: chartInput({ name: 'Acoustic' }) },
+			db
+		);
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		await db.charts.add({
+			id: crypto.randomUUID(),
+			songId: song.id,
+			name: 'Electric',
+			chordproSource: '{title: Two Charts}\n[C]Later',
+			sourceKey: 'C',
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString()
+		});
+
+		const [entry] = await listSongsWithDefaultPattern('alpha', db);
+
+		expect(entry.defaultChart?.id).toBe(firstChart.id);
+	});
+
+	it('batches into a fixed number of table scans regardless of library size', async () => {
+		for (let i = 0; i < 5; i++) {
+			await createSong(
+				{
+					song: songInput({ title: `Song ${i}` }),
+					chart: chartInput({ name: 'Default' }),
+					pattern: { label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: i }
+				},
+				db
+			);
+		}
+
+		const songsSpy = vi.spyOn(db.songs, 'toArray');
+		const chartsSpy = vi.spyOn(db.charts, 'where');
+		const patternsSpy = vi.spyOn(db.patterns, 'where');
+
+		const entries = await listSongsWithDefaultPattern('alpha', db);
+
+		expect(entries).toHaveLength(5);
+		// One scan for songs, one `anyOf` lookup for charts, one for patterns —
+		// not one query per song (see repo.ts doc comment: "no N+1").
+		expect(songsSpy).toHaveBeenCalledTimes(1);
+		expect(chartsSpy).toHaveBeenCalledTimes(1);
+		expect(patternsSpy).toHaveBeenCalledTimes(1);
+
+		songsSpy.mockRestore();
+		chartsSpy.mockRestore();
+		patternsSpy.mockRestore();
 	});
 });
 
