@@ -24,7 +24,11 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter({ fallback: 'index.html' }),
+			// Fallback must be 404.html: GitHub Pages has no SPA rewrites and only
+			// serves 404.html for unknown paths, so dynamic routes (/song/<id>,
+			// /edit/<id>) load the app shell through it. The prerendered root page
+			// still provides index.html. Local `vite preview` also honors 404.html.
+			adapter: adapter({ fallback: '404.html' }),
 			// GitHub Pages serves the site from /lyre/ (see .github/workflows/deploy.yml,
 			// task C1); empty ('') for local dev and the CI verify build, where the
 			// site is served from the domain root. `BASE_PATH` must be unset or a
