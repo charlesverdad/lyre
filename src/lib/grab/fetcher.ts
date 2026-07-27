@@ -24,7 +24,7 @@ import { resolveAdapter } from './registry';
 import type { GrabResult } from './types';
 
 export type GrabFailureReason =
-	'cors-or-network' | 'http-error' | 'unsupported-site' | 'no-chart-found';
+	'cors-or-network' | 'http-error' | 'unsupported-site' | 'no-chart-found' | 'invalid-url';
 
 export type GrabOutcome =
 	{ ok: true; result: GrabResult } | { ok: false; reason: GrabFailureReason; detail?: string };
@@ -38,6 +38,28 @@ export interface GrabUrlOptions {
 
 function nowIso(): string {
 	return new Date().toISOString();
+}
+
+/**
+ * Security gate (task SEC1 — javascript:-scheme URL XSS): `url` back only if
+ * it parses and its scheme is `http:`/`https:`, else `undefined`. Anything
+ * else — `javascript:`, `data:`, `vbscript:`, a bare string that isn't a URL
+ * at all — must never reach a `fetch` call, an adapter, or (defense in
+ * depth) an `<a href>` in the UI: a `javascript:` URL typed into the grab
+ * box would previously fail `fetch` with a `TypeError` (mapped to
+ * `cors-or-network`), which auto-opened the guided-paste sheet's "Open the
+ * page" link — clicking it ran attacker script in-origin, full IndexedDB
+ * access. Exported so `GrabInput.svelte`/`add/+page.svelte` can gate their
+ * `<a href>`s with the exact same rule `grabUrl`/`grabFromHtml` enforce.
+ */
+export function safeHttpUrl(url: string): string | undefined {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return undefined;
+	}
+	return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : undefined;
 }
 
 /**
@@ -76,6 +98,10 @@ function extractOutcome(html: string, url: string): GrabOutcome {
  * paste-flow suggestion wouldn't help.
  */
 export async function grabUrl(url: string, opts: GrabUrlOptions = {}): Promise<GrabOutcome> {
+	if (!safeHttpUrl(url)) {
+		return { ok: false, reason: 'invalid-url' };
+	}
+
 	const lookup = resolveAdapter(url);
 	if (lookup.kind === 'excluded') {
 		return { ok: false, reason: lookup.error.reason, detail: lookup.error.message };
@@ -116,6 +142,10 @@ export async function grabUrl(url: string, opts: GrabUrlOptions = {}): Promise<G
  * there's no markup to extract from).
  */
 export function grabFromHtml(html: string, url: string): GrabOutcome {
+	if (!safeHttpUrl(url)) {
+		return { ok: false, reason: 'invalid-url' };
+	}
+
 	const looksLikeHtml = /<[a-z!][^>]*>/i.test(html);
 	if (!looksLikeHtml) {
 		// Raw pasted chart text, not markup — this *is* the sanctioned paste
