@@ -234,7 +234,10 @@ export async function savePattern(
 ): Promise<PatternRecord> {
 	return database.transaction('rw', database.patterns, async () => {
 		const siblings = await database.patterns.where('chartId').equals(input.chartId).toArray();
-		const shouldBePreferred = input.isPreferred ?? siblings.length === 0;
+		// A chart's first pattern is always preferred, regardless of what the
+		// caller passes — otherwise the chart would have zero preferred
+		// patterns, violating the exactly-one-preferred invariant.
+		const shouldBePreferred = siblings.length === 0 ? true : (input.isPreferred ?? false);
 
 		const pattern: PatternRecord = {
 			id: newId(),

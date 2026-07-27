@@ -162,6 +162,25 @@ describe('preferred pattern invariant', () => {
 		expect(preferred[0].id).toBe(p2.id);
 	});
 
+	it('savePattern forces isPreferred true for a chart first pattern even if caller passes false', async () => {
+		const { chart } = await createSong({ song: songInput(), chart: chartInput() }, db);
+		const pattern = await savePattern(
+			{
+				chartId: chart.id,
+				label: 'My usual',
+				soundingKey: 'A',
+				shapeKey: 'G',
+				capo: 2,
+				isPreferred: false
+			},
+			db
+		);
+
+		expect(pattern.isPreferred).toBe(true);
+		const stored = await db.patterns.get(pattern.id);
+		expect(stored?.isPreferred).toBe(true);
+	});
+
 	it('savePattern with isPreferred: true demotes the previous preferred', async () => {
 		const { chart } = await createSong({ song: songInput(), chart: chartInput() }, db);
 		const p1 = await savePattern(
