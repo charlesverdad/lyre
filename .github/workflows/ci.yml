@@ -1,0 +1,43 @@
+name: CI
+
+# Runs the full `just verify` sequence plus a production build.
+# Nix is NOT used here — shell.nix is a local dev convenience; CI installs
+# tools directly (pnpm, Node, just) for speed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup just
+        uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (lint + format check + typecheck + unit tests)
+        run: just verify
+
+      - name: Build
+        run: just build
