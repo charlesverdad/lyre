@@ -1,0 +1,447 @@
+<script lang="ts">
+	/**
+	 * Play mode (task B3, mvp-spec.md F3) — "the" screen: chart rendering,
+	 * the transpose sheet (domain-model.md §1), font scale + view toggles,
+	 * and a screen wake lock while it's open.
+	 */
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
+
+	import Minus from '@lucide/svelte/icons/minus';
+	import Plus from '@lucide/svelte/icons/plus';
+	import SquarePen from '@lucide/svelte/icons/square-pen';
+	import Music from '@lucide/svelte/icons/music';
+	import Mic from '@lucide/svelte/icons/mic';
+	import ListMusic from '@lucide/svelte/icons/list-music';
+
+	import Badge from '$lib/ui/Badge.svelte';
+	import Button from '$lib/ui/Button.svelte';
+	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import Sheet from '$lib/ui/Sheet.svelte';
+	import TopBar from '$lib/ui/TopBar.svelte';
+
+	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
+	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
+	import { DEFAULT_COMFORT_ORDER, suggestPatterns } from '$lib/theory/pattern';
+	import { parseChordPro } from '$lib/chart/chordpro';
+
+	import ChordChart from '$lib/play/ChordChart.svelte';
+	import { formatBadge, formatCapoHint, formatSuggestion } from '$lib/play/format';
+	import { DEFAULT_FONT_SCALE, clampFontScale, stepFontScale } from '$lib/play/fontScale';
+	import {
+		applyJustForNow,
+		applySaveAsMyPattern,
+		cancelDraft,
+		createPatternSession,
+		openDraft,
+		stepSoundingKeyTarget,
+		withCapo,
+		withShapeKey,
+		withSuggestion,
+		withWorkingFontScale,
+		type PatternSessionState,
+		type PlayPattern
+	} from '$lib/play/patternSession';
+	import { shapeOptions, type ShapeOption } from '$lib/play/shapeOptions';
+	import { pickDefaultChart, pickPreferredPattern } from '$lib/play/song';
+
+	type LoadState = 'loading' | 'song-not-found' | 'no-chart' | 'ready';
+
+	let loadState = $state<LoadState>('loading');
+	let song = $state<SongRecord | undefined>();
+	let chart = $state<(ChartRecord & { patterns: PatternRecord[] }) | undefined>();
+	let doc = $state<ChartDoc | undefined>();
+	let preferredPattern = $state<PatternRecord | undefined>();
+	let session = $state<PatternSessionState | undefined>();
+
+	let viewMode = $state<'both' | 'chordsOnly' | 'lyricsOnly'>('both');
+	let transposeSheetOpen = $state(false);
+	let keyStepTarget = $state<string | undefined>();
+	let bottomBarVisible = $state(true);
+
+	const songId = $derived(page.params.songId);
+
+	$effect(() => {
+		const id = songId;
+		if (!id) return;
+		void load(id);
+	});
+
+	async function load(id: string) {
+		loadState = 'loading';
+		const details = await getSongWithDetails(id);
+		if (!details) {
+			loadState = 'song-not-found';
+			return;
+		}
+
+		const defaultChart = pickDefaultChart(details.charts);
+		if (!defaultChart) {
+			song = details.song;
+			loadState = 'no-chart';
+			return;
+		}
+
+		song = details.song;
+		chart = defaultChart;
+		doc = parseChordPro(defaultChart.chordproSource, { sourceKey: defaultChart.sourceKey });
+		preferredPattern = pickPreferredPattern(defaultChart.patterns);
+
+		const saved: PlayPattern = preferredPattern
+			? {
+					soundingKey: preferredPattern.soundingKey,
+					shapeKey: preferredPattern.shapeKey,
+					capo: preferredPattern.capo,
+					fontScale: clampFontScale(preferredPattern.fontScale)
+				}
+			: {
+					soundingKey: defaultChart.sourceKey,
+					shapeKey: defaultChart.sourceKey,
+					capo: 0,
+					fontScale: DEFAULT_FONT_SCALE
+				};
+
+		session = createPatternSession(saved);
+		viewMode = 'both';
+		loadState = 'ready';
+
+		// F1 "recently played" sort — stamp on every open, not gated on anything else.
+		await touchLastPlayed(id);
+	}
+
+	// --- Transpose sheet -----------------------------------------------
+
+	function openTransposeSheet() {
+		if (!session) return;
+		session = openDraft(session);
+		keyStepTarget = undefined;
+		transposeSheetOpen = true;
+	}
+
+	// Fires on *any* dialog close (backdrop tap, Escape, or our own footer
+	// handlers below setting `transposeSheetOpen = false`). Safe to always
+	// revert the draft here: the footer handlers already sync
+	// draft === working before closing, so this is a no-op in that case.
+	function handleSheetClosed() {
+		if (!session) return;
+		session = cancelDraft(session);
+		keyStepTarget = undefined;
+	}
+
+	function stepKey(direction: 1 | -1) {
+		if (!session) return;
+		const base = keyStepTarget ?? session.draft.soundingKey;
+		keyStepTarget = stepSoundingKeyTarget(base, direction);
+	}
+
+	const keySuggestions = $derived(
+		keyStepTarget ? suggestPatterns(keyStepTarget, { comfortOrder: DEFAULT_COMFORT_ORDER }) : []
+	);
+
+	function pickSuggestion(suggestion: { soundingKey: string; shapeKey: string; capo: number }) {
+		if (!session) return;
+		session = withSuggestion(session, suggestion);
+		keyStepTarget = undefined;
+	}
+
+	const shapeChoices = $derived(
+		session ? shapeOptions({ soundingKey: session.draft.soundingKey }) : []
+	);
+
+	function pickShape(option: ShapeOption) {
+		if (!session || option.disabled) return;
+		session = withShapeKey(session, option.shapeKey);
+	}
+
+	function stepCapo(direction: 1 | -1) {
+		if (!session) return;
+		const next = Math.min(9, Math.max(0, session.draft.capo + direction));
+		session = withCapo(session, next);
+	}
+
+	async function handleSaveAsMyPattern() {
+		if (!session || !chart) return;
+		const draft = session.draft;
+		const record = await savePattern({
+			chartId: chart.id,
+			label: preferredPattern?.label ?? 'My usual',
+			soundingKey: draft.soundingKey,
+			shapeKey: draft.shapeKey,
+			capo: draft.capo,
+			fontScale: draft.fontScale,
+			isPreferred: true
+		});
+		preferredPattern = record;
+		session = applySaveAsMyPattern(session);
+		transposeSheetOpen = false;
+	}
+
+	function handleJustForNow() {
+		if (!session) return;
+		session = applyJustForNow(session);
+		transposeSheetOpen = false;
+	}
+
+	// --- Bottom bar: font scale + view toggles --------------------------
+
+	function stepFont(direction: 1 | -1) {
+		if (!session) return;
+		session = withWorkingFontScale(session, stepFontScale(session.working.fontScale, direction));
+	}
+
+	function setViewMode(mode: 'chordsOnly' | 'lyricsOnly') {
+		viewMode = viewMode === mode ? 'both' : mode;
+	}
+
+	function goToEdit() {
+		if (!songId) return;
+		goto(resolve('/(app)/edit/[songId]', { songId }));
+	}
+
+	// --- Wake lock + collapsible bottom bar ------------------------------
+
+	onMount(() => {
+		let wakeLock: { release: () => Promise<void> } | undefined;
+
+		async function requestWakeLock() {
+			const nav = navigator as Navigator & {
+				wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> };
+			};
+			if (!nav.wakeLock) return;
+			try {
+				wakeLock = await nav.wakeLock.request('screen');
+			} catch {
+				// Quiet feature-detect failure (unsupported, backgrounded tab, etc).
+			}
+		}
+
+		function handleVisibilityChange() {
+			if (document.visibilityState === 'visible') void requestWakeLock();
+		}
+
+		let lastScrollY = window.scrollY;
+		function handleScroll() {
+			const y = window.scrollY;
+			if (y <= 40) bottomBarVisible = true;
+			else if (y > lastScrollY + 4) bottomBarVisible = false;
+			else if (y < lastScrollY - 4) bottomBarVisible = true;
+			lastScrollY = y;
+		}
+
+		void requestWakeLock();
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('scroll', handleScroll, { passive: true });
+
+		return () => {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('scroll', handleScroll);
+			void wakeLock?.release();
+		};
+	});
+</script>
+
+<svelte:head>
+	<title>{song ? `${song.title} — Lyre` : 'Lyre'}</title>
+</svelte:head>
+
+{#if loadState === 'song-not-found'}
+	<TopBar title="Song not found" />
+	<EmptyState
+		icon={ListMusic}
+		title="Song not found"
+		description="This song may have been removed from your library."
+	>
+		{#snippet action()}
+			<Button onclick={() => goto(resolve('/library'))}>Back to Library</Button>
+		{/snippet}
+	</EmptyState>
+{:else if loadState === 'no-chart'}
+	<TopBar title={song?.title ?? 'Song'} />
+	<EmptyState
+		icon={ListMusic}
+		title="No chart yet"
+		description="This song doesn't have a chart to play from."
+	>
+		{#snippet action()}
+			<Button onclick={() => goto(resolve('/library'))}>Back to Library</Button>
+		{/snippet}
+	</EmptyState>
+{:else if loadState === 'ready' && song && doc && session}
+	<TopBar title={song.title}>
+		{#snippet actions()}
+			<button
+				type="button"
+				class="flex h-9 w-9 items-center justify-center text-ink"
+				aria-label="Edit song"
+				onclick={goToEdit}
+			>
+				<SquarePen class="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+			</button>
+		{/snippet}
+	</TopBar>
+
+	<div class="px-4 pb-3">
+		<button type="button" aria-haspopup="dialog" onclick={openTransposeSheet}>
+			<Badge>{formatBadge(session.working)}</Badge>
+		</button>
+	</div>
+
+	<div class="px-4 pt-1 pb-[calc(8rem+var(--safe-bottom))]">
+		<ChordChart
+			{doc}
+			shapeKey={session.working.shapeKey}
+			fontScale={session.working.fontScale}
+			hideChords={viewMode === 'lyricsOnly'}
+			hideLyrics={viewMode === 'chordsOnly'}
+		/>
+	</div>
+
+	<!-- docs/design.md: "controls collapse to a single translucent bottom bar
+	     that hides on scroll" — sits above the app shell's fixed TabBar. -->
+	<div
+		class="fixed inset-x-0 z-30 border-t border-line bg-bg/80 backdrop-blur transition-transform duration-200 ease-out {bottomBarVisible
+			? 'translate-y-0'
+			: 'translate-y-full'}"
+		style="bottom: calc(4rem + var(--safe-bottom))"
+	>
+		<div class="mx-auto flex max-w-[640px] items-center justify-between gap-2 px-4 py-2">
+			<div class="flex items-center gap-1" role="group" aria-label="Font size">
+				<button
+					type="button"
+					class="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink"
+					aria-label="Decrease font size"
+					onclick={() => stepFont(-1)}
+				>
+					<Minus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+				</button>
+				<span class="w-8 text-center text-[13px] text-ink-2">{session.working.fontScale}</span>
+				<button
+					type="button"
+					class="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink"
+					aria-label="Increase font size"
+					onclick={() => stepFont(1)}
+				>
+					<Plus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+				</button>
+			</div>
+			<div class="flex items-center gap-1" role="group" aria-label="View">
+				<Button
+					variant={viewMode === 'chordsOnly' ? 'primary' : 'ghost'}
+					size="sm"
+					aria-pressed={viewMode === 'chordsOnly'}
+					onclick={() => setViewMode('chordsOnly')}
+				>
+					<Music class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					Chords
+				</Button>
+				<Button
+					variant={viewMode === 'lyricsOnly' ? 'primary' : 'ghost'}
+					size="sm"
+					aria-pressed={viewMode === 'lyricsOnly'}
+					onclick={() => setViewMode('lyricsOnly')}
+				>
+					<Mic class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					Lyrics
+				</Button>
+			</div>
+		</div>
+	</div>
+
+	<Sheet bind:open={transposeSheetOpen} title="Transpose" onclose={handleSheetClosed}>
+		<div class="flex flex-col gap-6 pb-2">
+			<section class="flex flex-col gap-2">
+				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Change the key</h3>
+				<div class="flex items-center justify-between gap-3">
+					<button
+						type="button"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink"
+						aria-label="Step sounding key down a semitone"
+						onclick={() => stepKey(-1)}
+					>
+						<Minus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					</button>
+					<span class="text-[20px] font-semibold text-ink">
+						Sounds in {keyStepTarget ?? session.draft.soundingKey}
+					</span>
+					<button
+						type="button"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink"
+						aria-label="Step sounding key up a semitone"
+						onclick={() => stepKey(1)}
+					>
+						<Plus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					</button>
+				</div>
+				{#if keyStepTarget}
+					<div class="flex flex-col gap-1.5 pt-1">
+						{#each keySuggestions as suggestion (suggestion.shapeKey)}
+							<button
+								type="button"
+								class="rounded-lg border border-line px-3 py-2 text-left text-[15px] text-ink"
+								onclick={() => pickSuggestion(suggestion)}
+							>
+								{formatSuggestion(suggestion)}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</section>
+
+			<section class="flex flex-col gap-2">
+				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Change how I play it</h3>
+				<div class="grid grid-cols-4 gap-2">
+					{#each shapeChoices as option (option.shapeKey)}
+						<button
+							type="button"
+							disabled={option.disabled}
+							class="flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-[15px] disabled:opacity-40 {session
+								.draft.shapeKey === option.shapeKey
+								? 'border-ink bg-ink text-bg'
+								: 'border-line text-ink'}"
+							onclick={() => pickShape(option)}
+						>
+							<span>{option.shapeKey}</span>
+							{#if option.disabled}
+								<span class="text-[11px] text-ink-3">{formatCapoHint(option.capo)}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			</section>
+
+			<section class="flex flex-col gap-2">
+				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Capo</h3>
+				<div class="flex items-center justify-between gap-3">
+					<button
+						type="button"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink disabled:opacity-40"
+						aria-label="Decrease capo"
+						disabled={session.draft.capo <= 0}
+						onclick={() => stepCapo(-1)}
+					>
+						<Minus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					</button>
+					<span class="text-[20px] font-semibold text-ink">
+						{session.draft.capo === 0 ? 'No capo' : `Capo ${session.draft.capo}`}
+					</span>
+					<button
+						type="button"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink disabled:opacity-40"
+						aria-label="Increase capo"
+						disabled={session.draft.capo >= 9}
+						onclick={() => stepCapo(1)}
+					>
+						<Plus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+					</button>
+				</div>
+			</section>
+
+			<div class="flex flex-col gap-2 border-t border-line pt-4">
+				<Button size="lg" onclick={handleSaveAsMyPattern}>Save as my pattern</Button>
+				<Button variant="ghost" size="lg" onclick={handleJustForNow}>Just for now</Button>
+			</div>
+		</div>
+	</Sheet>
+{/if}
