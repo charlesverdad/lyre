@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+
+/*
+ * Mono design tokens — docs/design.md "Palette (grayscale only)".
+ * Light values are the defaults; dark values apply under
+ * prefers-color-scheme, overridable by an explicit [data-theme] attribute
+ * on <html> (set by app settings once a theme toggle exists).
+ * Components must use only the resulting token utilities (bg-bg, text-ink,
+ * border-line, ...) — raw gray-* classes are banned by convention.
+ */
+@theme {
+	--color-bg: #ffffff;
+	--color-surface: #fafafa;
+	--color-ink: #0a0a0a;
+	--color-ink-2: #737373;
+	--color-ink-3: #a3a3a3;
+	--color-line: #e5e5e5;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-bg: #000000;
+		--color-surface: #121212;
+		--color-ink: #f5f5f5;
+		--color-ink-2: #a3a3a3;
+		--color-ink-3: #737373;
+		--color-line: #262626;
+	}
+}
+
+:root[data-theme='light'] {
+	--color-bg: #ffffff;
+	--color-surface: #fafafa;
+	--color-ink: #0a0a0a;
+	--color-ink-2: #737373;
+	--color-ink-3: #a3a3a3;
+	--color-line: #e5e5e5;
+}
+
+:root[data-theme='dark'] {
+	--color-bg: #000000;
+	--color-surface: #121212;
+	--color-ink: #f5f5f5;
+	--color-ink-2: #a3a3a3;
+	--color-ink-3: #737373;
+	--color-line: #262626;
+}
+
+body {
+	background-color: var(--color-bg);
+	color: var(--color-ink);
+}
