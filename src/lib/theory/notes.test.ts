@@ -102,18 +102,55 @@ describe('degreeToSpelling', () => {
 		expect(degreeToSpelling(f, 5)).not.toBe('A#');
 	});
 
-	it('spells chromatic degrees sharp in sharp-preference keys', () => {
+	it('spells the tritone (#4/b5) per the key accidental preference', () => {
 		const c = keyNameToPitchClass('C')!;
-		expect(degreeToSpelling(c, 6)).toBe('F#');
-		expect(degreeToSpelling(c, 1)).toBe('C#');
-	});
-
-	it('spells chromatic degrees flat in flat-preference keys', () => {
+		expect(degreeToSpelling(c, 6)).toBe('F#'); // sharp-preference key
 		const f = keyNameToPitchClass('F')!;
 		// Tritone above F, flat side: borrows the 5th-degree letter (C) flattened.
 		expect(degreeToSpelling(f, 6)).toBe('Cb');
-		const bb = keyNameToPitchClass('Bb')!;
-		// Chromatic passing tone between Bb and C, flat side: borrows C flattened.
-		expect(degreeToSpelling(bb, 1)).toBe('Cb');
+	});
+
+	it('always spells borrowed (b2/b3/b6/b7) chromatic degrees flat, even in sharp-preference keys', () => {
+		// b7 of D is C natural (not "C#" cancelled to a sharp spelling) — the
+		// letter is fixed by the borrowed-chord convention, not the key's own
+		// accidental preference.
+		expect(degreeToSpelling(keyNameToPitchClass('D')!, 10)).toBe('C');
+		// b6 of C is Ab, never G#.
+		expect(degreeToSpelling(keyNameToPitchClass('C')!, 8)).toBe('Ab');
+		// b3 of C is Eb, never D#.
+		expect(degreeToSpelling(keyNameToPitchClass('C')!, 3)).toBe('Eb');
+		// b7 of E is D natural.
+		expect(degreeToSpelling(keyNameToPitchClass('E')!, 10)).toBe('D');
+		// b6 of G is Eb.
+		expect(degreeToSpelling(keyNameToPitchClass('G')!, 8)).toBe('Eb');
+	});
+
+	// Borrowed-chord degrees always use the *flattened upper-neighbor letter*
+	// (b2/b3/b6/b7), regardless of the key's own sharp/flat preference. That
+	// letter sometimes needs a "b" (e.g. C -> Eb) and sometimes doesn't,
+	// because flattening a key's own sharp scale degree can land back on a
+	// natural (e.g. E's major 3rd is G#, so its b3 is G natural, not G#).
+	// Table below is derived from that rule for every sharp-preference key
+	// (per domain-model.md §4, refined) plus two flat-preference keys.
+	const BORROWED_DEGREE_TABLE: Record<string, [b2: string, b3: string, b6: string, b7: string]> = {
+		C: ['Db', 'Eb', 'Ab', 'Bb'],
+		D: ['Eb', 'F', 'Bb', 'C'],
+		E: ['F', 'G', 'C', 'D'],
+		'F#': ['G', 'A', 'D', 'E'],
+		G: ['Ab', 'Bb', 'Eb', 'F'],
+		A: ['Bb', 'C', 'F', 'G'],
+		B: ['C', 'D', 'G', 'A'],
+		F: ['Gb', 'Ab', 'Db', 'Eb'],
+		Bb: ['Cb', 'Db', 'Gb', 'Ab']
+	};
+
+	it('spells b2/b3/b6/b7 as the flattened upper-neighbor letter, in every key', () => {
+		for (const [key, [b2, b3, b6, b7]] of Object.entries(BORROWED_DEGREE_TABLE)) {
+			const pc = keyNameToPitchClass(key)!;
+			expect([key, degreeToSpelling(pc, 1)]).toEqual([key, b2]);
+			expect([key, degreeToSpelling(pc, 3)]).toEqual([key, b3]);
+			expect([key, degreeToSpelling(pc, 8)]).toEqual([key, b6]);
+			expect([key, degreeToSpelling(pc, 10)]).toEqual([key, b7]);
+		}
 	});
 });

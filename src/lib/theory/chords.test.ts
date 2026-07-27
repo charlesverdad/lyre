@@ -57,6 +57,11 @@ describe('parseChordToken', () => {
 		expect(parseChordToken('G/B/D')).toBeNull();
 		expect(parseChordToken('Gfrobnicate')).toBeNull();
 	});
+
+	it('parses the "6/9" quality despite its internal slash, and its "69" alias', () => {
+		expect(parseChordToken('G6/9')).toEqual({ root: 7, quality: '6/9' });
+		expect(parseChordToken('C69')).toEqual({ root: 0, quality: '6/9' });
+	});
 });
 
 describe('chordToDegree / renderChord round trip', () => {
@@ -100,11 +105,24 @@ describe('chordToDegree / renderChord round trip', () => {
 		expect(renderChord(chord, 'D')).toBe('Gsomethingweird(add#11)');
 	});
 
-	it('spells chromatic (non-diatonic) chords per the key accidental preference', () => {
-		// bVII-ish chromatic root: degree 10 relative to C is Bb (C's preference is sharp,
-		// but this diatonic-adjacent case still resolves via the letter table).
+	it('spells the tritone (#4/b5) per the key accidental preference', () => {
 		const chord: Chord = { degree: 6, quality: '' };
 		expect(renderChord(chord, 'C')).toBe('F#'); // sharp-preference key
 		expect(renderChord(chord, 'F')).toBe('Cb'); // flat-preference key
+	});
+
+	it('spells borrowed (b2/b3/b6/b7) chords flat, even in sharp-preference keys', () => {
+		expect(renderChord({ degree: 10, quality: '' }, 'D')).toBe('C');
+		expect(renderChord({ degree: 8, quality: '' }, 'C')).toBe('Ab');
+		expect(renderChord({ degree: 3, quality: 'm' }, 'C')).toBe('Ebm');
+		expect(renderChord({ degree: 10, quality: '' }, 'E')).toBe('D');
+		expect(renderChord({ degree: 8, quality: '' }, 'G')).toBe('Eb');
+	});
+
+	it('round-trips and transposes the "6/9" quality', () => {
+		const parsed = parseChordToken('G6/9')!;
+		const chord = chordToDegree(parsed, 'C');
+		expect(renderChord(chord, 'C')).toBe('G6/9');
+		expect(renderChord(chord, 'D')).toBe('A6/9');
 	});
 });

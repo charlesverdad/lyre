@@ -146,13 +146,23 @@ export function parseChordToken(token: string): ParsedChordToken | null {
 		return { root: 0, quality: 'N.C.', noChord: true };
 	}
 
-	const [rootAndQuality, bassPart, ...rest] = trimmed.split('/');
-	if (rest.length > 0) return null; // more than one slash — not a chord we understand
-
-	const root = parseRootFrom(rootAndQuality);
+	const root = parseRootFrom(trimmed);
 	if (!root) return null;
 
-	const qualityText = rootAndQuality.slice(root.length);
+	const remainder = trimmed.slice(root.length);
+
+	// Some quality aliases contain a slash themselves (e.g. "6/9") — try the
+	// whole remainder as a quality *before* splitting on '/' for a slash
+	// bass, otherwise "G6/9" would wrongly be parsed as quality "6" over a
+	// (bogus) bass "9".
+	const wholeMatch = matchQuality(remainder);
+	if (wholeMatch) {
+		return { root: root.pc, quality: wholeMatch.quality };
+	}
+
+	const [qualityText, bassPart, ...rest] = remainder.split('/');
+	if (rest.length > 0) return null; // more than one slash — not a chord we understand
+
 	const matched = matchQuality(qualityText);
 	if (!matched) return null;
 

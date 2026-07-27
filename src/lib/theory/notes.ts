@@ -167,13 +167,27 @@ export function allCanonicalKeyNames(): readonly string[] {
 const MAJOR_SCALE_SEMITONES = [0, 2, 4, 5, 7, 9, 11];
 
 /**
+ * Semitone offsets (relative to the key root) of the "borrowed from the
+ * parallel minor" chromatic degrees: b2, b3, b6, b7. These always spell as
+ * the flattened upper-neighbor scale letter, regardless of the key's
+ * sharp/flat preference — a Bb chord in a borrowed-chord progression is a
+ * lowered 7th, never a raised 6th (domain-model.md §4 rule 3, refined:
+ * only the tritone/#4-b5 offset actually follows the key's accidental
+ * preference; borrowed-chord degrees do not).
+ */
+const BORROWED_FLAT_DEGREES = new Set([1, 3, 8, 10]);
+
+/**
  * Spell a semitone `degree` (0..11) above `keyPc` as a note name, per
  * domain-model.md §4:
  *  - Diatonic degrees (on the major scale of the key) get the matching
  *    scale letter, spelled naturally or with whatever single accidental the
  *    key signature requires (rule 1/2: degree-preserving transpose).
- *  - Chromatic (non-diatonic) degrees borrow the neighboring scale letter
- *    and accidental according to the key's sharp/flat preference (rule 3).
+ *  - The tritone (#4/b5) is the one chromatic degree that's genuinely
+ *    ambiguous, so it follows the key's sharp/flat preference (rule 3).
+ *  - The other chromatic degrees (b2, b3, b6, b7) are conventionally
+ *    "borrowed" from the parallel minor and always spell flat, regardless
+ *    of the key's own accidental preference.
  */
 export function degreeToSpelling(
 	keyPc: PitchClass,
@@ -181,7 +195,6 @@ export function degreeToSpelling(
 	accidental?: Accidental
 ): string {
 	const d = ((degree % 12) + 12) % 12;
-	const pref = accidental ?? keyAccidentalPreference(keyPc);
 	const exactIndex = MAJOR_SCALE_SEMITONES.indexOf(d);
 	if (exactIndex !== -1) {
 		return spellPitch(((keyPc + d) % 12) as PitchClass, keyPc, exactIndex);
@@ -191,6 +204,12 @@ export function degreeToSpelling(
 	for (let i = 0; i < MAJOR_SCALE_SEMITONES.length; i++) {
 		if (MAJOR_SCALE_SEMITONES[i] < d) below = i;
 	}
-	const letterSteps = pref === 'sharp' ? below : below + 1;
+	let letterSteps: number;
+	if (BORROWED_FLAT_DEGREES.has(d)) {
+		letterSteps = below + 1;
+	} else {
+		const pref = accidental ?? keyAccidentalPreference(keyPc);
+		letterSteps = pref === 'sharp' ? below : below + 1;
+	}
 	return spellPitch(((keyPc + d) % 12) as PitchClass, keyPc, letterSteps);
 }
