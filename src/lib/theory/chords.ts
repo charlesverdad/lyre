@@ -30,9 +30,12 @@ const QUALITY_ALIASES: Record<string, string> = {
 	m: 'm',
 	min: 'm',
 	'-': 'm',
-	// Diminished / augmented.
+	// Diminished / augmented. Note: bare "o" is intentionally NOT an alias
+	// for "dim" — it collides with the common English word "Go"/"Do" as a
+	// lyric on its own line, which would wrongly get parsed as a chord (and
+	// then swallowed as a chord-line token instead of lyric text). "o" is
+	// only recognized when immediately followed by a digit (o7 -> dim7).
 	dim: 'dim',
-	o: 'dim',
 	'°': 'dim',
 	dim7: 'dim7',
 	o7: 'dim7',
