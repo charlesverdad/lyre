@@ -37,5 +37,15 @@ export default defineConfig(
 		// Override or add rule settings here, such as:
 		// 'svelte/button-has-type': 'error'
 		rules: {}
+	},
+	{
+		// These files render <a href> to EXTERNAL, runtime-dynamic URLs (a grabbed
+		// chart's source page). resolve() only applies to in-app routes, and the
+		// rule can't statically prove a dynamic href is external, so it's disabled
+		// here. Do not add app-internal navigation to these files without resolve().
+		files: ['src/routes/(app)/add/+page.svelte', 'src/routes/(app)/add/GrabInput.svelte'],
+		rules: {
+			'svelte/no-navigation-without-resolve': 'off'
+		}
 	}
 );
