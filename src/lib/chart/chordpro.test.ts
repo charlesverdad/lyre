@@ -86,6 +86,17 @@ describe('parseChordPro', () => {
 		expect(doc.sections[0].lines[0].chords[0].chord).toEqual({ degree: 0, quality: '' });
 	});
 
+	it("lets a caller-supplied sourceKey override the body's own {key:} directive", () => {
+		// A key-picker correction (src/lib/addedit/parseState.ts) passes an
+		// explicit override; it must win over whatever {key:} the pasted text
+		// itself states, not be silently clobbered by it.
+		const doc = parseChordPro('{key: G}\n[G]Amazing grace', { sourceKey: 'A' });
+		expect(doc.sourceKey).toBe('A');
+		// G is degree 10 relative to A ((7 - 9 + 12) % 12); the letter the user
+		// actually typed must still render as "G" once re-spelled in key A.
+		expect(doc.sections[0].lines[0].chords[0].chord).toEqual({ degree: 10, quality: '' });
+	});
+
 	it('normalizes curly apostrophes in chordpro lyrics', () => {
 		const doc = parseChordPro('{key: G}\n[G]I’ve been set free');
 		expect(doc.sections[0].lines[0].lyrics).toBe("I've been set free");

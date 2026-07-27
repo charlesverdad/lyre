@@ -93,7 +93,16 @@ function serializeLine(line: Line, key: KeyName): string {
 }
 
 export interface ParseChordProOptions {
-	/** Fallback key for inline chords if the text has no `{key:}` directive. */
+	/**
+	 * The key to interpret inline chords in. When the text also has a
+	 * `{key:}` directive, `sourceKey` wins and the directive's value is
+	 * ignored (its line is still consumed, not treated as a lyric) — an
+	 * explicit caller override is a stronger signal than whatever the pasted
+	 * text happens to say, e.g. the add/edit screens' key-picker correction
+	 * (`src/lib/addedit/parseState.ts`) needs the override to actually take
+	 * effect rather than being silently clobbered by the body's own header.
+	 * When omitted, the `{key:}` directive (if present) is used instead.
+	 */
 	sourceKey?: KeyName;
 }
 
@@ -102,6 +111,7 @@ export function parseChordPro(text: string, opts: ParseChordProOptions = {}): Ch
 	const rawLines = text.replace(/\r\n?/g, '\n').split('\n');
 
 	let title: string | undefined;
+	const sourceKeyOverride = opts.sourceKey;
 	let sourceKey = opts.sourceKey;
 	const sections: { label?: string; lines: Line[] }[] = [];
 	let current: { label?: string; lines: Line[] } = { label: undefined, lines: [] };
@@ -125,7 +135,9 @@ export function parseChordPro(text: string, opts: ParseChordProOptions = {}): Ch
 
 		const keyMatch = KEY_RE.exec(line);
 		if (keyMatch) {
-			sourceKey = keyMatch[1].trim();
+			// A caller-supplied sourceKey always wins over the body's own {key:}
+			// directive — see ParseChordProOptions.sourceKey.
+			if (sourceKeyOverride === undefined) sourceKey = keyMatch[1].trim();
 			continue;
 		}
 
