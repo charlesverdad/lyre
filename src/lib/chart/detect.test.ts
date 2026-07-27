@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectFormat, parseChart } from './detect';
+import { renderChord } from '../theory/chords';
+import { detectFormat, inferSourceKeyFromChords, parseChart } from './detect';
 
 const PNWCHORDS_STYLE = `Original in Ab. Capo 1, play in G.
 Verse1
@@ -100,9 +101,43 @@ describe('parseChart — ChordPro input', () => {
 	});
 });
 
+describe('inferSourceKeyFromChords', () => {
+	it('prefers the last chord when it is a plain major triad (songs resolve to their tonic)', () => {
+		// last chord D is major -> D, even though the progression opens on G.
+		expect(inferSourceKeyFromChords('G   C   D\nlyrics')).toBe('D');
+	});
+
+	it('falls back to the first chord when the last chord is not a plain major triad', () => {
+		// last chord Em is minor -> fall back to the first chord's root, G.
+		expect(inferSourceKeyFromChords('G   C   Em\nlyrics')).toBe('G');
+	});
+
+	it('returns undefined when the text has no recognizable chords', () => {
+		expect(inferSourceKeyFromChords('just some lyrics, no chords at all')).toBeUndefined();
+	});
+});
+
 describe('parseChart — plain text without a header', () => {
-	it('falls back to key "C" when no header and no key is stated', () => {
-		const { doc, header } = parseChart('G   C   D\nAmazing grace, how sweet the sound');
+	it("infers sourceKey from the chart's chords when no header states a key", () => {
+		// No header; chord letters are G/C/D/G — a typical I-IV-V-I progression
+		// that opens AND closes on the tonic G, so both the "last major chord"
+		// and "first chord" heuristic branches agree on G.
+		const { doc, header } = parseChart('G   C   D   G\nAmazing grace, how sweet the sound');
+		expect(doc.sourceKey).toBe('G');
+		expect(header.soundingKey).toBeUndefined();
+	});
+
+	it('renders the inferred-key chart back in that same shape key as a no-op', () => {
+		const { doc } = parseChart('G   C   D   G\nAmazing grace, how sweet the sound');
+		expect(doc.sourceKey).toBe('G');
+		const rendered = doc.sections[0].lines[0].chords.map((c) =>
+			renderChord(c.chord, doc.sourceKey)
+		);
+		expect(rendered).toEqual(['G', 'C', 'D', 'G']);
+	});
+
+	it('falls back to key "C" only when there are no chords at all to infer from', () => {
+		const { doc, header } = parseChart('Just a lyric line with no chords anywhere in it');
 		expect(doc.sourceKey).toBe('C');
 		expect(header.soundingKey).toBeUndefined();
 	});

@@ -28,6 +28,8 @@ const PNWCHORDS_RE = new RegExp(
 
 const KEY_RE = new RegExp(`\\bkey\\s*(?:of|:)\\s*(${NOTE})\\b`, 'i');
 const CAPO_RE = /\bcapo\s*(?:on)?\s*:?\s*(\d+)/i;
+/** "play in X" / "played in X" / "play with X shapes" — a standalone shape-key statement. */
+const PLAY_IN_RE = new RegExp(`\\bplay(?:ed)?\\s+(?:in|with)\\s+(${NOTE})(?:\\s+shapes?)?\\b`, 'i');
 const DIRECTIVE_LINE_RE = /^\{.*\}\s*$/;
 
 /** How many leading lines we're willing to scan for header content. */
@@ -39,7 +41,14 @@ const MAX_HEADER_LINES = 6;
  *  - "Original in <key>. Capo <n>, play in <key>." (pnwchords)
  *  - "Key: <key>" / "Key of <key>"
  *  - "Capo <n>" / "Capo: <n>" / "Capo on <n>th fret"
- *  - combinations of the last two, on the same or separate lines.
+ *  - "play in <key>" / "played in <key>" / "play with <key> shapes" as a
+ *    standalone shape-key statement (e.g. "Key: G, play in A")
+ *  - combinations of the above, on the same or separate lines.
+ *
+ * If exactly two of the three pattern parts end up known but they're
+ * mutually inconsistent for `derivePattern` (e.g. an unrecognized key
+ * spelling slipped through), we leave the third part undefined instead of
+ * throwing — a malformed header shouldn't crash chart parsing.
  */
 export function parsePatternHeader(text: string): PatternHeaderResult {
 	const rawLines = text.replace(/\r\n?/g, '\n').split('\n');
@@ -79,6 +88,11 @@ export function parsePatternHeader(text: string): PatternHeaderResult {
 			capo = parseInt(capoMatch[1], 10);
 			matchedAny = true;
 		}
+		const playInMatch = PLAY_IN_RE.exec(line);
+		if (playInMatch && shapeKey === undefined) {
+			shapeKey = playInMatch[1];
+			matchedAny = true;
+		}
 
 		if (matchedAny) {
 			consumed.add(i);
@@ -90,12 +104,18 @@ export function parsePatternHeader(text: string): PatternHeaderResult {
 
 	const knownCount = [soundingKey, shapeKey, capo].filter((v) => v !== undefined).length;
 	if (knownCount === 2) {
-		if (shapeKey !== undefined && capo !== undefined) {
-			soundingKey = derivePattern({ shapeKey, capo }).soundingKey;
-		} else if (soundingKey !== undefined && capo !== undefined) {
-			shapeKey = derivePattern({ soundingKey, capo }).shapeKey;
-		} else if (soundingKey !== undefined && shapeKey !== undefined) {
-			capo = derivePattern({ soundingKey, shapeKey }).capo;
+		try {
+			if (shapeKey !== undefined && capo !== undefined) {
+				soundingKey = derivePattern({ shapeKey, capo }).soundingKey;
+			} else if (soundingKey !== undefined && capo !== undefined) {
+				shapeKey = derivePattern({ soundingKey, capo }).shapeKey;
+			} else if (soundingKey !== undefined && shapeKey !== undefined) {
+				capo = derivePattern({ soundingKey, shapeKey }).capo;
+			}
+		} catch {
+			// Mutually inconsistent/unrecognized key spellings — keep whatever
+			// was directly parsed and leave the derived third field undefined
+			// rather than throwing out of a text-parsing function.
 		}
 	}
 

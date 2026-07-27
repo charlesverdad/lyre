@@ -89,4 +89,38 @@ describe('parsePatternHeader', () => {
 		expect(result.soundingKey).toBeUndefined();
 		expect(result.shapeKey).toBeUndefined();
 	});
+
+	it('parses "Key: X, play in Y" without dropping the shape-key clause', () => {
+		// "Key: A" states the sounding key; "play in G" independently states the
+		// shape key — A (9) - G (7) = capo 2.
+		const result = parsePatternHeader('Key: A, play in G\nVerse1\nG\nlyrics');
+		expect(result.soundingKey).toBe('A');
+		expect(result.shapeKey).toBe('G');
+		expect(result.capo).toBe(2);
+	});
+
+	it('parses "Key: X, play in Y" where the shape key is "higher" than the sounding key', () => {
+		// Sounding G (7), shape A (9): capo = mod12(7 - 9) = 10 — an unusually
+		// high but mathematically valid capo (A + 10 = 19 mod 12 = 7 = G).
+		// derivePattern only throws for unrecognized key spellings, which
+		// doesn't happen here, so all three fields end up populated; the
+		// try/catch in parsePatternHeader exists to leave capo undefined
+		// instead of throwing if that ever isn't the case.
+		const result = parsePatternHeader('Key: G, play in A\nVerse1\nG\nlyrics');
+		expect(result.soundingKey).toBe('G');
+		expect(result.shapeKey).toBe('A');
+		expect(result.capo).toBe(10);
+	});
+
+	it('parses "played in X" and "play with X shapes" phrasings', () => {
+		expect(parsePatternHeader('played in G\nVerse1').shapeKey).toBe('G');
+		expect(parsePatternHeader('play with G shapes\nVerse1').shapeKey).toBe('G');
+	});
+
+	it('still parses the full pnwchords sentence correctly alongside the new play-in rule', () => {
+		const result = parsePatternHeader('Original in Ab. Capo 1, play in G.\nVerse1');
+		expect(result.soundingKey).toBe('Ab');
+		expect(result.shapeKey).toBe('G');
+		expect(result.capo).toBe(1);
+	});
 });

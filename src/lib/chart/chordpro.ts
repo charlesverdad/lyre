@@ -14,9 +14,11 @@ import { chordToDegree, parseChordToken, renderChord } from '../theory/chords';
 import type { Chord, ChartDoc, KeyName, Line } from '../theory/types';
 import { matchSectionLabel, normalizeLyricText } from './plaintext';
 
-const TITLE_RE = /^\{(?:title|t)\s*:\s*(.*?)\s*\}\s*$/i;
-const KEY_RE = /^\{key\s*:\s*(.*?)\s*\}\s*$/i;
-const COMMENT_RE = /^\{(?:comment|c)\s*:\s*(.*?)\s*\}\s*$/i;
+// All directive regexes allow optional whitespace right after `{` and right
+// before `}` (e.g. "{ key: G }"), not just around the `:`.
+const TITLE_RE = /^\{\s*(?:title|t)\s*:\s*(.*?)\s*\}\s*$/i;
+const KEY_RE = /^\{\s*key\s*:\s*(.*?)\s*\}\s*$/i;
+const COMMENT_RE = /^\{\s*(?:comment|c)\s*:\s*(.*?)\s*\}\s*$/i;
 const ANY_DIRECTIVE_RE = /^\{.*\}\s*$/;
 
 type SectionKeyword = 'verse' | 'chorus' | 'bridge';
@@ -29,10 +31,10 @@ const DEFAULT_LABEL: Record<SectionKeyword, string> = {
 
 const SHORT_TO_KEYWORD: Record<string, SectionKeyword> = { v: 'verse', c: 'chorus', b: 'bridge' };
 
-const LONG_START_RE = /^\{start_of_(verse|chorus|bridge)(?:\s*:\s*(.*?))?\}\s*$/i;
-const LONG_END_RE = /^\{end_of_(verse|chorus|bridge)\}\s*$/i;
-const SHORT_START_RE = /^\{so([vcb])(?:\s*:\s*(.*?))?\}\s*$/i;
-const SHORT_END_RE = /^\{eo([vcb])\}\s*$/i;
+const LONG_START_RE = /^\{\s*start_of_(verse|chorus|bridge)(?:\s*:\s*(.*?))?\s*\}\s*$/i;
+const LONG_END_RE = /^\{\s*end_of_(verse|chorus|bridge)\s*\}\s*$/i;
+const SHORT_START_RE = /^\{\s*so([vcb])(?:\s*:\s*(.*?))?\s*\}\s*$/i;
+const SHORT_END_RE = /^\{\s*eo([vcb])\s*\}\s*$/i;
 
 function matchSectionBoundary(line: string): { type: 'start' | 'end'; label?: string } | null {
 	const trimmed = line.trim();

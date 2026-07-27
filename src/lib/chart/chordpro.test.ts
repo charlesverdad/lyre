@@ -15,6 +15,12 @@ describe('parseChordPro', () => {
 		expect(doc.title).toBe('Amazing Grace');
 	});
 
+	it('tolerates whitespace right after "{" and right before "}"', () => {
+		const doc = parseChordPro('{ title: Amazing Grace }\n{ key: G }\n[G]x');
+		expect(doc.title).toBe('Amazing Grace');
+		expect(doc.sourceKey).toBe('G');
+	});
+
 	it('places inline chords at the correct plain-text index', () => {
 		const doc = parseChordPro('{key: G}\n[G]Amazing [C]grace, how [G]sweet');
 		const line = doc.sections[0].lines[0];

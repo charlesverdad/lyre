@@ -138,6 +138,14 @@ describe('parsePlaintextChart', () => {
 		expect(doc.sections[0].lines[0].lyrics).toBe("I've been set free");
 	});
 
+	it('treats "Go" as a lyric, not a diminished-chord line ("Go" collided with a stray "o" -> dim alias)', () => {
+		const doc = parsePlaintextChart('Go\ntell it on the mountain', 'G');
+		expect(doc.sections[0].lines).toEqual([
+			{ lyrics: 'Go', chords: [] },
+			{ lyrics: 'tell it on the mountain', chords: [] }
+		]);
+	});
+
 	it('keeps raw text for unparseable chord tokens on an otherwise-chord line', () => {
 		// 4 of 5 tokens parse (80%), meeting the chord-line threshold; the
 		// unparseable token is kept verbatim as a raw passthrough chord.
