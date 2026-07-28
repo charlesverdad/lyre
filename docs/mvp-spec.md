@@ -43,10 +43,10 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 
 - Renders lyrics with chords above, in the song's **preferred pattern** by default.
 - Header badge: `Capo 2 · G shapes · sounds in A`. Always visible, one tap to open the transpose sheet.
-- **Transpose sheet** (per [domain model §1](domain-model.md)):
-  - Sounding-key stepper (±1 semitone) with shape/capo suggestions ranked by comfort.
-  - Shape picker (C, D, E, G, A, + full chromatic list) — recomputes capo, keeps sounding key.
-  - Capo stepper — recomputes shapes, keeps sounding key.
+- **Transpose sheet** (per [domain model §1](domain-model.md); redesigned in v0.2 around "play in key X with Y shapes → capo N"):
+  - Big answer line on top: "Capo 2" with subline "G shapes · sounds in A" ("No capo" at 0).
+  - "Play in key" chip row — all 12 sounding keys, the song's original sounding key tagged "Original".
+  - "With shapes" chip row — comfort shapes first (G C D A E, rest behind "More…"); every chip shows its capo inline; capo > 9 disabled; best option tagged "Suggested"; a key pick that would strand the current shape past capo 9 auto-switches to the suggested shape.
   - "Save as my pattern" / "Just for now" — casual transposes don't silently overwrite the saved pattern.
 - Readability: large type with pinch/±, high-contrast theme, dark mode, chords visually distinct from lyrics, section labels styled.
 - Screen wake-lock while the chart is open.
