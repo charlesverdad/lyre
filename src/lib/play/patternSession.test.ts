@@ -12,6 +12,7 @@ import {
 	withCapo,
 	withFontScale,
 	withShapeKey,
+	withSoundingKey,
 	withSuggestion,
 	withWorkingFontScale
 } from './patternSession';
@@ -51,6 +52,46 @@ describe('capo stepper (withCapo)', () => {
 		expect(state.draft.capo).toBe(4);
 		// Ab (8) - 4 = 4 -> E.
 		expect(state.draft.shapeKey).toBe('E');
+	});
+});
+
+describe('"Play in key" picker (withSoundingKey)', () => {
+	it('keeps shapeKey, recomputes capo', () => {
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'A');
+		expect(state.draft.shapeKey).toBe('G');
+		// A (9) - G (7) = 2.
+		expect(state.draft.capo).toBe(2);
+		expect(state.draft.soundingKey).toBe('A');
+	});
+
+	it('matches derivePattern({soundingKey, shapeKey}) directly (task D3 mental model)', () => {
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'B');
+		state = withShapeKey(state, 'C');
+		// Selecting key K then shape S = derivePattern({soundingKey: K, shapeKey: S}).
+		// B (11) - C (0) = 11.
+		expect(state.draft).toMatchObject({ soundingKey: 'B', shapeKey: 'C', capo: 11 });
+	});
+
+	it('review fix: auto-switches shape when the current one would need capo > maxCapo', () => {
+		// GOODNESS is G shapes. F# (6) - G (7) mod 12 = 11 -> unplayable: without
+		// the auto-switch this would leave the G chip selected *and* disabled,
+		// and "Save as my pattern" would persist an unplayable capo-11 pattern.
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'F#');
+		expect(state.draft.soundingKey).toBe('F#');
+		expect(state.draft.capo).toBeLessThanOrEqual(9);
+		// F# (6): comfort shapes available at capo <=9 are E(2), D(4), C(6), A(9)
+		// — E is lowest capo, so it's the auto-switch pick.
+		expect(state.draft).toMatchObject({ shapeKey: 'E', capo: 2 });
+	});
+
+	it('does not auto-switch when the current shape stays within maxCapo', () => {
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'A');
+		// A (9) - G (7) = 2, well within maxCapo -> shape stays G.
+		expect(state.draft).toMatchObject({ shapeKey: 'G', capo: 2 });
 	});
 });
 

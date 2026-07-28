@@ -4,3 +4,4 @@ export * from './plaintext';
 export * from './header';
 export * from './chordpro';
 export * from './detect';
+export * from './extractRegion';

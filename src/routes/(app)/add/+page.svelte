@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Button from '$lib/ui/Button.svelte';
@@ -9,11 +10,18 @@
 	import {
 		buildCreateSongInput,
 		canSaveChart,
+		consumeShareTarget,
 		deriveChartParseState,
 		emptyMetadataForm,
 		type MetadataFormValues
 	} from '$lib/addedit';
-	import { formatSourceAttribution, safeHttpUrl, type GrabResult } from '$lib/grab';
+	import {
+		formatSourceAttribution,
+		safeHttpUrl,
+		shouldAutoGrabPastedUrl,
+		type GrabController,
+		type GrabResult
+	} from '$lib/grab';
 	import { formatPatternSummary } from '$lib/library/format';
 	import GrabInput from './GrabInput.svelte';
 
@@ -37,6 +45,12 @@
 	// afterwards doesn't clear it — edits are an overlay, the grabbed text
 	// stays available as the "original".
 	let grabMeta = $state<GrabMeta | undefined>();
+
+	// Set once `GrabInput` mounts (task D1), so the main paste textarea's
+	// bare-URL paste handler and the share-target hand-off below can drive
+	// the exact same grab flow `GrabInput`'s own URL field uses, instead of
+	// duplicating `grabUrl`/`grabFromHtml` outcome handling here.
+	let grabController: GrabController | undefined;
 
 	// `undefined` while the paste box is empty, so the empty-state hint only
 	// shows once the user has actually typed/pasted something.
@@ -94,6 +108,42 @@
 		};
 	}
 
+	/**
+	 * The main paste textarea's `onpaste`: when the paste box is still empty
+	 * and the clipboard payload is just a bare URL (`shouldAutoGrabPastedUrl`,
+	 * `$lib/grab/bareUrl.ts`) — not a chart with a link somewhere in it, and
+	 * not a URL pasted over/into text that's already there — treat it as a
+	 * grab instead of inserting the URL text into the paste box (mvp-spec.md
+	 * F2: "just the URL can be pasted and it would crawl itself"). Runs the
+	 * exact same `GrabController` flow as `GrabInput`'s own URL field.
+	 *
+	 * The empty-box gate matters: without it, pasting a URL while the box
+	 * already has chart text in it (mid-edit, or adding a source link)
+	 * would `preventDefault()` the paste and silently overwrite the whole
+	 * textarea via the grab result instead of just inserting the link.
+	 */
+	function onPasteRawText(e: ClipboardEvent) {
+		const text = e.clipboardData?.getData('text') ?? '';
+		if (shouldAutoGrabPastedUrl(rawText, text) && grabController) {
+			e.preventDefault();
+			grabController.grab(text.trim());
+		}
+	}
+
+	// PWA share-target hand-off (task D1): `/share` stashes whatever the OS
+	// share sheet sent before redirecting here. A shared URL drives the same
+	// grab flow as a pasted URL; shared text (some browsers share selected
+	// text rather than a link) prefills the paste box, which runs through
+	// the same noisy-paste extraction as any other paste.
+	onMount(() => {
+		const shared = consumeShareTarget();
+		if (shared.url) {
+			grabController?.grab(shared.url);
+		} else if (shared.text) {
+			rawText = shared.text;
+		}
+	});
+
 	async function save() {
 		if (!parseState || !canSave) return;
 		saving = true;
@@ -121,7 +171,11 @@
 <TopBar title="Add" />
 
 <div class="flex flex-col gap-6 px-4 pb-8">
-	<GrabInput ongrabbed={onGrabbed} />
+	<GrabInput ongrabbed={onGrabbed} oncontroller={(c) => (grabController = c)} />
+
+	<p class="-mt-4 text-[13px] text-ink-3">
+		Tip: install Lyre, then share a song page straight to it (Android).
+	</p>
 
 	{#if grabMeta}
 		{@const safeUrl = safeHttpUrl(grabMeta.sourceUrl)}
@@ -149,6 +203,7 @@
 		<span class="text-[13px] font-semibold text-ink-2">Paste a chart</span>
 		<textarea
 			bind:value={rawText}
+			onpaste={onPasteRawText}
 			rows="10"
 			placeholder="Paste a chart — ChordPro or chords-above-lyrics, e.g.
 
@@ -160,6 +215,10 @@ Amazing grace, how sweet the sound"
 
 	{#if rawText.trim() && parseState?.isEmpty}
 		<p class="text-[13px] text-ink-2">Couldn't find chords — check the format.</p>
+	{/if}
+
+	{#if parseState?.trimmedNoise}
+		<p class="text-[13px] text-ink-2">Trimmed page noise — check the preview.</p>
 	{/if}
 
 	{#if parseState && !parseState.isEmpty}

@@ -30,3 +30,30 @@ export function formatSuggestion(suggestion: Pick<Pattern, 'shapeKey' | 'capo'>)
 export function formatCapoHint(capo: number): string {
 	return `capo ${capo}`;
 }
+
+/**
+ * Render the transpose sheet's big answer-line headline (task D3): "Capo 2",
+ * or "No capo" when `capo` is 0.
+ */
+export function formatAnswerHeadline(pattern: Pick<Pattern, 'capo'>): string {
+	return pattern.capo === 0 ? 'No capo' : `Capo ${pattern.capo}`;
+}
+
+/**
+ * Render the transpose sheet's answer-line subline (task D3), e.g.
+ * "G shapes · sounds in A". Drops the redundant "shapes" segment at capo 0,
+ * same as `formatBadge`, since `shapeKey === soundingKey` in that case.
+ */
+export function formatAnswerSubline(
+	pattern: Pick<Pattern, 'shapeKey' | 'capo' | 'soundingKey'>
+): string {
+	if (pattern.capo === 0) {
+		return `sounds in ${pattern.soundingKey}`;
+	}
+	return `${pattern.shapeKey} shapes · sounds in ${pattern.soundingKey}`;
+}
+
+/** Render a shape chip's inline capo hint, e.g. "capo 2" or "no capo" at capo 0. */
+export function formatChipCapo(capo: number): string {
+	return capo === 0 ? 'no capo' : `capo ${capo}`;
+}

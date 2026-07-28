@@ -32,7 +32,8 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 - **Grab flow (primary):** paste a song URL — or share the page to Lyre from the browser (PWA share-target / native share sheet) → Lyre fetches the page, extracts the chart text, parses the "chords above lyrics" body and the key/capo header (*"Original in Ab. Capo 1, play in G"* → source key + initial pattern, per [domain model §3](domain-model.md)) → preview → save with `sourceUrl` attribution and the raw text preserved.
   - **Site adapters**: a small parser registry keyed by domain. v0.1 ships the pnwchords adapter + a generic "best effort" extractor for other chords-above-lyrics pages. Adapters are just parsing rules in the open-source repo — contributors add sites via PR.
   - Grabs are user-initiated, one page per action, with a clear failure path into the paste flow.
-- **Paste flow (fallback):** paste ChordPro or plain chart text → same preview → save.
+- **Paste flow (fallback):** paste ChordPro or plain chart text → same preview → save. A bare URL pasted into the paste box (nothing else on the line) is treated as a grab automatically, same as typing it into the "Grab from URL" field. A noisy select-all/copy off a chord-site page (nav/search/footer chrome around the chart) is run through chart-region extraction (`src/lib/chart/extractRegion.ts`) before parsing, so the preview shows just the chart; a "Trimmed page noise" hint marks when this happened.
+- **PWA share target** (Android; iOS has no web share-target API — roadmap: Capacitor native share extension): installed Lyre registers as a share target (`static/manifest.webmanifest`'s `share_target`), so sharing a chord-site page from the browser's share sheet lands on `/share`, which hands the shared URL (or text) straight into the grab/paste flow above.
 - Metadata: title (required), authors, original key (required — inferred, editable), tempo, CCLI# (optional). Grab prefills all it can from the page.
 - Built-in editor with monospaced editing view and rendered preview toggle. Chord tokens are validated live; unknown tokens are highlighted but never block saving. Edits are an overlay — "view original" and "revert to grabbed text" always available.
 
@@ -42,10 +43,10 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 
 - Renders lyrics with chords above, in the song's **preferred pattern** by default.
 - Header badge: `Capo 2 · G shapes · sounds in A`. Always visible, one tap to open the transpose sheet.
-- **Transpose sheet** (per [domain model §1](domain-model.md)):
-  - Sounding-key stepper (±1 semitone) with shape/capo suggestions ranked by comfort.
-  - Shape picker (C, D, E, G, A, + full chromatic list) — recomputes capo, keeps sounding key.
-  - Capo stepper — recomputes shapes, keeps sounding key.
+- **Transpose sheet** (per [domain model §1](domain-model.md); redesigned in v0.2 around "play in key X with Y shapes → capo N"):
+  - Big answer line on top: "Capo 2" with subline "G shapes · sounds in A" ("No capo" at 0).
+  - "Play in key" chip row — all 12 sounding keys, the song's original sounding key tagged "Original".
+  - "With shapes" chip row — comfort shapes first (G C D A E, rest behind "More…"); every chip shows its capo inline; capo > 9 disabled; best option tagged "Suggested"; a key pick that would strand the current shape past capo 9 auto-switches to the suggested shape.
   - "Save as my pattern" / "Just for now" — casual transposes don't silently overwrite the saved pattern.
 - Readability: large type with pinch/±, high-contrast theme, dark mode, chords visually distinct from lyrics, section labels styled.
 - Screen wake-lock while the chart is open.

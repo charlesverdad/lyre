@@ -5,7 +5,13 @@
  * key picker" logic.
  */
 
-import { detectFormat, parseChart, parseChordPro, parsePlaintextChart } from '$lib/chart';
+import {
+	detectFormat,
+	parseChart,
+	parseChordPro,
+	parsePlaintextChart,
+	resolveNoisyPaste
+} from '$lib/chart';
 import type { ChartDoc, KeyName, Pattern } from '$lib/theory/types';
 
 export interface ChartParseState {
@@ -16,6 +22,13 @@ export interface ChartParseState {
 	initialPattern?: Pattern;
 	/** True when nothing chord/lyric-shaped was found (mvp-spec.md F2 empty state). */
 	isEmpty: boolean;
+	/**
+	 * True when the input looked like a noisy page dump (select-all off a
+	 * chord site: nav/search/footer chrome around the chart) and region
+	 * extraction (`$lib/chart/extractRegion.ts`) trimmed it down before
+	 * parsing. Lets the paste UI show a "trimmed page noise" hint.
+	 */
+	trimmedNoise: boolean;
 }
 
 /**
@@ -27,7 +40,8 @@ export interface ChartParseState {
  * rather than silently transposing the chart (domain-model.md §3).
  */
 export function deriveChartParseState(text: string, sourceKeyOverride?: KeyName): ChartParseState {
-	const parsed = parseChart(text);
+	const { chartText: effectiveText, trimmedNoise } = resolveNoisyPaste(text);
+	const parsed = parseChart(effectiveText);
 	const headerPattern = initialPatternFromHeader(parsed.header);
 
 	if (sourceKeyOverride === undefined || sourceKeyOverride === parsed.doc.sourceKey) {
@@ -35,20 +49,22 @@ export function deriveChartParseState(text: string, sourceKeyOverride?: KeyName)
 			doc: parsed.doc,
 			sourceKey: parsed.doc.sourceKey,
 			initialPattern: headerPattern,
-			isEmpty: parsed.doc.sections.length === 0
+			isEmpty: parsed.doc.sections.length === 0,
+			trimmedNoise
 		};
 	}
 
 	const doc =
-		detectFormat(text) === 'chordpro'
-			? parseChordPro(text, { sourceKey: sourceKeyOverride })
+		detectFormat(effectiveText) === 'chordpro'
+			? parseChordPro(effectiveText, { sourceKey: sourceKeyOverride })
 			: parsePlaintextChart(parsed.header.remainingText, sourceKeyOverride);
 
 	return {
 		doc,
 		sourceKey: doc.sourceKey,
 		initialPattern: headerPattern,
-		isEmpty: doc.sections.length === 0
+		isEmpty: doc.sections.length === 0,
+		trimmedNoise
 	};
 }
 

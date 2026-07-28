@@ -53,7 +53,7 @@
 			{#each section.lines as line, lineIndex (lineIndex)}
 				<div class="leading-[1.6]">
 					{#if line.chords.length > 0}
-						<div class="chord text-[15px] whitespace-pre text-ink" aria-hidden="true">
+						<div class="chord text-[14px] whitespace-pre text-ink" aria-hidden="true">
 							{#each chordRow(line) as cell, cellIndex (cellIndex)}
 								{#if cell.unknown && highlightUnknownChords}
 									<span class="underline decoration-wavy decoration-2 underline-offset-2"
