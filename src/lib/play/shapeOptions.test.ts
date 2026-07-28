@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shapeOptions } from './shapeOptions';
+import { keyOptions, shapeOptions } from './shapeOptions';
 
 describe('shapeOptions', () => {
 	it('orders comfort shapes first (G, C, D, A, E), then the rest chromatically', () => {
@@ -50,5 +50,18 @@ describe('shapeOptions', () => {
 		// B (11): G(7)->4, C(0)->11 disabled, D(2)->9, A(9)->2, E(4)->7 — comfort
 		// order picks lowest-capo among available comfort shapes: A at capo 2.
 		expect(suggested).toMatchObject({ shapeKey: 'A', capo: 2 });
+	});
+});
+
+describe('keyOptions', () => {
+	it('tags the *original sounding key* Original, not the shape key (task D3 review fix)', () => {
+		// "Goodness of God"-style fixture: chart entered as Ab/G/capo-1, i.e.
+		// song.defaultKey = 'Ab' (the sounding key of the initial pattern) while
+		// chart.sourceKey = 'G' (the shape the chords are written in). The
+		// "Original" tag must land on Ab, not G.
+		const options = keyOptions('Ab');
+		expect(options).toHaveLength(12);
+		expect(options.find((o) => o.key === 'Ab')).toMatchObject({ isOriginal: true });
+		expect(options.find((o) => o.key === 'G')).toMatchObject({ isOriginal: false });
 	});
 });

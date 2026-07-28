@@ -52,3 +52,20 @@ export function shapeOptions(params: ShapeOptionsParams): ShapeOption[] {
 		return { shapeKey, capo, disabled: capo > maxCapo, suggested: best?.shapeKey === shapeKey };
 	});
 }
+
+export interface KeyOption {
+	key: string;
+	/**
+	 * True when `key` is the chart's *original sounding key* — `song.defaultKey`
+	 * (set from the initial grabbed/entered pattern's `soundingKey`), **not**
+	 * `chart.sourceKey` (the shape key the chords are written in — those two
+	 * only coincide when the chart was entered at capo 0). Getting this wrong
+	 * tags the wrong "Play in key" chip "Original" (task D3 review fix).
+	 */
+	isOriginal: boolean;
+}
+
+/** All 12 sounding-key chips for the "Play in key" picker, original key tagged. */
+export function keyOptions(originalSoundingKey: string): KeyOption[] {
+	return allCanonicalKeyNames().map((key) => ({ key, isOriginal: key === originalSoundingKey }));
+}

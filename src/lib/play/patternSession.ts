@@ -28,10 +28,13 @@
  *    `shapeKey` recomputed.
  */
 
-import { derivePattern } from '$lib/theory/pattern';
+import { derivePattern, DEFAULT_COMFORT_ORDER, suggestPatterns } from '$lib/theory/pattern';
 import { keyNameToPitchClass, pitchClassToKeyName } from '$lib/theory/notes';
 import type { Pattern, PitchClass } from '$lib/theory/types';
 import { clampFontScale } from './fontScale';
+
+/** Highest capo considered playable, matching `shapeOptions`' default (task D3). */
+const DEFAULT_MAX_CAPO = 9;
 
 /** A `Pattern` plus the play-mode display prefs that travel with it. */
 export interface PlayPattern extends Pattern {
@@ -99,19 +102,45 @@ export function withCapo(state: PatternSessionState, capo: number): PatternSessi
 	return { ...state, draft: { ...derived, fontScale: state.draft.fontScale } };
 }
 
+export interface WithSoundingKeyOptions {
+	/** Highest capo considered playable before auto-switching shapes. */
+	maxCapo?: number;
+	/** Shape-family preference order used to pick the auto-switch fallback. */
+	comfortOrder?: readonly string[];
+}
+
 /**
  * The transpose sheet's "Play in key" picker (task D3): keep `shapeKey`,
  * pick a new `soundingKey`, recompute `capo`. Mirrors `withShapeKey` with
  * the fixed/free roles swapped — together the two calls implement the
  * "play in key K, with shape S" mental model directly:
  * `derivePattern({soundingKey: K, shapeKey: S})`.
+ *
+ * Review fix (task D3): if keeping the current `shapeKey` would need a
+ * capo beyond `maxCapo` (default 9) in the new key, that leaves a shape
+ * chip simultaneously selected *and* disabled, and an unplayable pattern
+ * one tap from being saved. Instead, auto-switch to the best available
+ * shape for the new key (same ranking `shapeOptions`/`suggestPatterns` use
+ * — comfort order, then lowest capo) so the draft always lands on a
+ * playable pattern.
  */
 export function withSoundingKey(
 	state: PatternSessionState,
-	soundingKey: string
+	soundingKey: string,
+	opts: WithSoundingKeyOptions = {}
 ): PatternSessionState {
+	const maxCapo = opts.maxCapo ?? DEFAULT_MAX_CAPO;
+	const comfortOrder = opts.comfortOrder ?? DEFAULT_COMFORT_ORDER;
+
 	const derived = derivePattern({ soundingKey, shapeKey: state.draft.shapeKey });
-	return { ...state, draft: { ...derived, fontScale: state.draft.fontScale } };
+	if (derived.capo <= maxCapo) {
+		return { ...state, draft: { ...derived, fontScale: state.draft.fontScale } };
+	}
+
+	// `suggestPatterns` already returns `{soundingKey, shapeKey, capo}` for the
+	// target key (canonically spelled), ranked comfort-order-then-lowest-capo.
+	const best = suggestPatterns(soundingKey, { comfortOrder, maxCapo })[0] ?? derived;
+	return { ...state, draft: { ...best, fontScale: state.draft.fontScale } };
 }
 
 /**

@@ -24,7 +24,6 @@
 
 	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
 	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
-	import { allCanonicalKeyNames } from '$lib/theory/notes';
 	import { parseChordPro } from '$lib/chart/chordpro';
 
 	import ChordChart from '$lib/play/ChordChart.svelte';
@@ -47,7 +46,7 @@
 		type PatternSessionState,
 		type PlayPattern
 	} from '$lib/play/patternSession';
-	import { shapeOptions, type ShapeOption } from '$lib/play/shapeOptions';
+	import { keyOptions, shapeOptions, type ShapeOption } from '$lib/play/shapeOptions';
 	import { pickDefaultChart, pickPreferredPattern } from '$lib/play/song';
 
 	type LoadState = 'loading' | 'song-not-found' | 'no-chart' | 'ready';
@@ -64,7 +63,12 @@
 	let moreShapesOpen = $state(false);
 	let bottomBarVisible = $state(true);
 
-	const keyNames = allCanonicalKeyNames();
+	// "Play in key" chips: tagged against `song.defaultKey` — the chart's
+	// original *sounding* key (set from the initial grabbed/entered pattern's
+	// soundingKey) — not `chart.sourceKey`, which is the shape key the chords
+	// are written in and only coincides with the sounding key at capo 0
+	// (review fix, task D3).
+	const keyChoices = $derived(song ? keyOptions(song.defaultKey) : []);
 
 	const songId = $derived(page.params.songId);
 
@@ -153,9 +157,16 @@
 		session = withShapeKey(session, option.shapeKey);
 	}
 
+	/** Highest capo considered playable — matches `shapeOptions`/`withSoundingKey`'s default. */
+	const MAX_CAPO = 9;
+
 	async function handleSaveAsMyPattern() {
 		if (!session || !chart) return;
 		const draft = session.draft;
+		// Belt-and-braces guard (review fix, task D3): `withSoundingKey` already
+		// auto-switches shapes to avoid landing on an unplayable capo, but never
+		// persist one regardless of how the draft got here.
+		if (draft.capo > MAX_CAPO) return;
 		const record = await savePattern({
 			// Update the current preferred pattern in place rather than
 			// inserting a new row each time (repo.ts `savePattern` upserts on
@@ -350,8 +361,9 @@
 		<div class="flex flex-col gap-6 pb-2">
 			<!-- The answer: "I want to play in key X, with shape Y — tell me the
 			     capo." Big and unmissable, replaces the old three-stepper cluster
-			     (task D3). -->
-			<div class="flex flex-col gap-0.5 pt-1">
+			     (task D3). aria-live so screen reader users hear the answer
+			     update as they tap key/shape chips (review fix). -->
+			<div class="flex flex-col gap-0.5 pt-1" aria-live="polite" aria-atomic="true">
 				<span class="text-[28px] font-bold text-ink">{formatAnswerHeadline(session.draft)}</span>
 				<span class="text-[15px] text-ink-2">{formatAnswerSubline(session.draft)}</span>
 			</div>
@@ -359,23 +371,21 @@
 			<section class="flex flex-col gap-2">
 				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Play in key</h3>
 				<div class="flex flex-wrap gap-2">
-					{#each keyNames as key (key)}
+					{#each keyChoices as option (option.key)}
+						{@const selected = session.draft.soundingKey === option.key}
 						<button
 							type="button"
-							aria-pressed={session.draft.soundingKey === key}
-							aria-label="Play in key {key}"
-							class="chord flex min-w-[52px] flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-[15px] {session
-								.draft.soundingKey === key
+							aria-pressed={selected}
+							aria-label="Play in key {option.key}"
+							class="chord flex min-w-[52px] flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-[15px] {selected
 								? 'border-ink bg-ink text-bg'
 								: 'border-line text-ink'}"
-							onclick={() => pickSoundingKey(key)}
+							onclick={() => pickSoundingKey(option.key)}
 						>
-							<span>{key}</span>
-							{#if chart && key === chart.sourceKey}
+							<span>{option.key}</span>
+							{#if option.isOriginal}
 								<span
-									class="text-[10px] font-normal uppercase {session.draft.soundingKey === key
-										? 'text-bg/70'
-										: 'text-ink-2'}"
+									class="text-[10px] font-normal uppercase {selected ? 'text-bg/70' : 'text-ink-2'}"
 								>
 									Original
 								</span>
@@ -424,7 +434,9 @@
 			</section>
 
 			<div class="flex flex-col gap-2 border-t border-line pt-4">
-				<Button size="lg" onclick={handleSaveAsMyPattern}>Save as my pattern</Button>
+				<Button size="lg" disabled={session.draft.capo > MAX_CAPO} onclick={handleSaveAsMyPattern}>
+					Save as my pattern
+				</Button>
 				<Button variant="ghost" size="lg" onclick={handleJustForNow}>Just for now</Button>
 			</div>
 		</div>
