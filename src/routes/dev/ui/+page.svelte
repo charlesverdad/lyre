@@ -88,7 +88,7 @@
 						<div class="flex flex-row flex-wrap items-start text-[17px] leading-[1.6]">
 							{#each chartSnippetLines as fragment, fragmentIndex (fragmentIndex)}
 								<span class="flex flex-col">
-									<span class="chord block min-h-[1.3em] text-[0.95em] whitespace-pre text-ink">
+									<span class="chord block min-h-[1.6em] text-[0.95em] whitespace-pre text-ink">
 										{fragment.chord}
 									</span>
 									<span class="block whitespace-pre text-ink">{fragment.lyric}</span>
