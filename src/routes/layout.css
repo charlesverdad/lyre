@@ -57,13 +57,16 @@ body {
 }
 
 /*
- * Chord text style — docs/design.md "Type": semibold ui-monospace so chords
- * align cleanly over lyrics. Combine with a size utility, e.g.
- * `<span class="chord text-[15px]">`.
+ * Chord text style — docs/design.md "Type": bold ui-monospace, full `ink`,
+ * with slightly wider tracking so chords visually pop off the lyric line
+ * without touching hue (monochrome constraint — weight/size/tracking only).
+ * Combine with a size utility sized ~0.95em of the adjacent lyric text, e.g.
+ * `<span class="chord text-[0.95em] text-ink">`.
  */
 .chord {
 	font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-	font-weight: 600;
+	font-weight: 700;
+	letter-spacing: 0.02em;
 }
 
 /* Safe-area insets for notched / home-indicator devices (app shell chrome). */

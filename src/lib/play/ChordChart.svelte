@@ -46,8 +46,8 @@
 </script>
 
 <!--
-	docs/design.md "Type": chords semibold monospace, lyrics regular sans with
-	generous line-height (1.6+). Font size is the only thing that scales with
+	docs/design.md "Type": chords bold monospace at 0.95em, lyrics regular
+	sans with generous line-height (1.6+). Font size is the only thing that scales with
 	the A-/A+ stepper — everything else is relative (em/leading) so the whole
 	chart grows together.
 -->
@@ -75,7 +75,7 @@
 							{#each splitChordLine( line, (chord) => renderChord(chord, shapeKey) ) as fragment, fragmentIndex (fragmentIndex)}
 								<span class="flex flex-col">
 									{#if !hideChords}
-										<span class="chord block min-h-[1.3em] text-[0.88em] whitespace-pre text-ink">
+										<span class="chord block min-h-[1.3em] text-[0.95em] whitespace-pre text-ink">
 											{fragment.chordText ?? ''}
 										</span>
 									{/if}
