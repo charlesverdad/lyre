@@ -75,7 +75,10 @@
 							{#each splitChordLine( line, (chord) => renderChord(chord, shapeKey) ) as fragment, fragmentIndex (fragmentIndex)}
 								<span class="flex flex-col">
 									{#if !hideChords}
-										<span class="chord block min-h-[1.3em] text-[0.95em] whitespace-pre text-ink">
+										<!-- min-h must equal one line box (leading-[1.6] on the row): an empty
+										     chord span otherwise collapses to below a populated span's 1.6em
+										     line box, floating chordless leading lyrics above the rest. -->
+										<span class="chord block min-h-[1.6em] text-[0.95em] whitespace-pre text-ink">
 											{fragment.chordText ?? ''}
 										</span>
 									{/if}
