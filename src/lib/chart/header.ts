@@ -36,6 +36,21 @@ const DIRECTIVE_LINE_RE = /^\{.*\}\s*$/;
 const MAX_HEADER_LINES = 6;
 
 /**
+ * True when `line` looks like a pattern-header statement on its own — one of
+ * the same shapes `parsePatternHeader` recognizes (pnwchords' "Original in
+ * X. Capo n, play in Y.", "Key: X", "Capo n", "play in X"). Exported for
+ * `extractRegion.ts`'s noisy-paste chart-region detection, which needs to
+ * spot a header line without re-deriving a full pattern from it — single
+ * source of truth for "what does a header line look like" stays here.
+ */
+export function looksLikePatternHeaderLine(line: string): boolean {
+	if (line.trim() === '') return false;
+	return (
+		PNWCHORDS_RE.test(line) || KEY_RE.test(line) || CAPO_RE.test(line) || PLAY_IN_RE.test(line)
+	);
+}
+
+/**
  * Extract `{soundingKey?, shapeKey?, capo?}` from a chart's first lines,
  * plus the text with those header line(s) removed. Recognizes:
  *  - "Original in <key>. Capo <n>, play in <key>." (pnwchords)

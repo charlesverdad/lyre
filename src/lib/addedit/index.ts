@@ -3,3 +3,4 @@ export * from './authors';
 export * from './chordValidation';
 export * from './parseState';
 export * from './songRecord';
+export * from './shareTarget';

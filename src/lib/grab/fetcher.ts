@@ -19,6 +19,7 @@
  * honest option is to just not try.
  */
 
+import { resolveNoisyPaste } from '$lib/chart';
 import { buildGrabResult } from './pipeline';
 import { resolveAdapter } from './registry';
 import type { GrabResult } from './types';
@@ -161,8 +162,14 @@ export function grabFromHtml(html: string, url: string): GrabOutcome {
 			sourceSite = url;
 		}
 		if (!html.trim()) return { ok: false, reason: 'no-chart-found' };
+		// The guided-paste sheet's "paste the page source or the chart text"
+		// box gets the same noisy-select-all-copy treatment as the main paste
+		// flow (`$lib/addedit/parseState.ts` uses the same `resolveNoisyPaste`)
+		// — a raw HTML paste (has markup) still runs through the
+		// adapter/extractOutcome path above and is unaffected by this.
+		const { chartText } = resolveNoisyPaste(html);
 		const result = buildGrabResult(
-			{ chartText: html },
+			{ chartText },
 			{ sourceUrl: url, sourceSite, fetchedAt: nowIso() }
 		);
 		return { ok: true, result };
