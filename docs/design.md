@@ -18,7 +18,7 @@ No accent color. Primary actions are solid ink-on-bg inversions (black button, w
 ## Type
 
 - UI: system sans stack (`-apple-system, "SF Pro", Segoe UI, Roboto, …`), sizes 13/15/17/22/28, weights 400/600/700. Emphasis via weight and size, never color.
-- **Chords: semibold monospace** (`ui-monospace, "SF Mono", …`) so they align over lyrics; lyrics regular sans, generous line-height (1.6+) with a chord line gap tuned for music-stand glanceability.
+- **Chords: bold (700) monospace** (`ui-monospace, "SF Mono", …`), full `ink`, slightly wider tracking (`0.02em`), sized ~0.95em of the adjacent lyric text — so chords align over lyrics but read visibly stronger at a glance. This is a monochrome app: chords are distinguished from lyrics by weight/size/tracking only, never hue. Lyrics stay regular (400) sans at full size and full `ink` (never dimmed) — they must remain maximally readable at music-stand distance. Generous line-height (1.6+) with a chord line gap tuned for glanceability.
 - Play mode base size 17px, pinch/stepper scalable 14–28px, persisted per pattern.
 
 ## Layout & chrome

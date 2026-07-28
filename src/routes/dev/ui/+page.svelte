@@ -23,6 +23,16 @@
 		{ value: 'light', label: 'Light' },
 		{ value: 'dark', label: 'Dark' }
 	];
+
+	// Chart-snippet demo (task D2): chord-over-lyric treatment, public-domain
+	// lyrics ("Amazing Grace", John Newton, 1779 — no licensing concerns per
+	// docs/licensing-and-content.md).
+	const chartSnippetLines: { chord: string; lyric: string }[] = [
+		{ chord: 'G', lyric: 'Amazing ' },
+		{ chord: 'C', lyric: 'grace, how ' },
+		{ chord: 'G', lyric: 'sweet the ' },
+		{ chord: 'D', lyric: 'sound' }
+	];
 </script>
 
 <svelte:head>
@@ -64,6 +74,28 @@
 					<p class="text-[22px] font-semibold text-ink">22 — section headers</p>
 					<p class="text-[28px] font-bold text-ink">28 — large title</p>
 					<p class="chord text-[17px] text-ink">G D/F# Em7 Cadd9</p>
+				</section>
+
+				<section class="space-y-2">
+					<h2 class="text-[15px] font-semibold text-ink">Chart snippet (chord/lyric treatment)</h2>
+					<p class="text-[13px] text-ink-2">
+						Task D2: chords bold (700) full-ink, ~0.95em of lyric size, slight tracking — lyrics
+						stay regular (400) full-ink for music-stand readability. "Amazing Grace" (John Newton,
+						1779, public domain).
+					</p>
+					<div class="border border-line p-3">
+						<p class="pb-1 text-[13px] font-semibold tracking-wide text-ink-2 uppercase">Verse 1</p>
+						<div class="flex flex-row flex-wrap items-start text-[17px] leading-[1.6]">
+							{#each chartSnippetLines as fragment, fragmentIndex (fragmentIndex)}
+								<span class="flex flex-col">
+									<span class="chord block min-h-[1.3em] text-[0.95em] whitespace-pre text-ink">
+										{fragment.chord}
+									</span>
+									<span class="block whitespace-pre text-ink">{fragment.lyric}</span>
+								</span>
+							{/each}
+						</div>
+					</div>
 				</section>
 
 				<section class="space-y-2">
