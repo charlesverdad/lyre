@@ -7,22 +7,21 @@ const SAVED_BADGE = 'Capo 1 · G shapes · sounds in Ab';
 const TRANSPOSED_BADGE = 'Capo 2 · G shapes · sounds in A';
 
 /**
- * Open the transpose sheet, step the sounding key up one semitone
- * (Ab → A per domain-model.md §1 pitch-class math), and pick the
- * "G shapes · capo 2" suggestion — the exact sequence in mvp-spec.md's
- * acceptance walkthrough (steps 3 and 5, adapted: the spec's example goes
- * G→A directly since it starts from a G source; here we start from the
- * pasted Ab/G/capo-1 pattern and step up once to reach the same A/G/capo-2
- * destination).
+ * Open the transpose sheet, tap the "A" key chip ("play in key" — the
+ * pasted chart is Ab/G/capo-1, so this reaches the same A/G/capo-2
+ * destination as the old semitone-stepper walkthrough), then tap the "G"
+ * shape chip ("with shape") — the two-question flow task D3 redesigned
+ * the sheet around: pick a key, pick a shape, the capo is the answer.
  */
-async function openAndPickTransposeSuggestion(page: Page): Promise<void> {
+async function openAndPickKeyAndShape(page: Page): Promise<void> {
 	await page.getByRole('button', { name: SAVED_BADGE }).click();
 	await expect(page.getByRole('heading', { name: 'Transpose' })).toBeVisible();
 
-	await page.getByRole('button', { name: 'Step sounding key up a semitone' }).click();
-	await expect(page.getByText('Sounds in A', { exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Play in key A', exact: true }).click();
+	await expect(page.getByText('Capo 2', { exact: true })).toBeVisible();
 
 	await page.getByRole('button', { name: 'G shapes · capo 2', exact: true }).click();
+	await expect(page.getByText('G shapes · sounds in A', { exact: true })).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -33,7 +32,7 @@ test.beforeEach(async ({ page }) => {
 test('"Just for now" changes the on-screen badge without touching the saved pattern', async ({
 	page
 }) => {
-	await openAndPickTransposeSuggestion(page);
+	await openAndPickKeyAndShape(page);
 	await page.getByRole('button', { name: 'Just for now' }).click();
 
 	await expect(page.getByRole('button', { name: TRANSPOSED_BADGE })).toBeVisible();
@@ -45,7 +44,7 @@ test('"Just for now" changes the on-screen badge without touching the saved patt
 });
 
 test('"Save as my pattern" persists the transpose across reloads', async ({ page }) => {
-	await openAndPickTransposeSuggestion(page);
+	await openAndPickKeyAndShape(page);
 	await page.getByRole('button', { name: 'Save as my pattern' }).click();
 
 	await expect(page.getByRole('button', { name: TRANSPOSED_BADGE })).toBeVisible();

@@ -100,6 +100,21 @@ export function withCapo(state: PatternSessionState, capo: number): PatternSessi
 }
 
 /**
+ * The transpose sheet's "Play in key" picker (task D3): keep `shapeKey`,
+ * pick a new `soundingKey`, recompute `capo`. Mirrors `withShapeKey` with
+ * the fixed/free roles swapped — together the two calls implement the
+ * "play in key K, with shape S" mental model directly:
+ * `derivePattern({soundingKey: K, shapeKey: S})`.
+ */
+export function withSoundingKey(
+	state: PatternSessionState,
+	soundingKey: string
+): PatternSessionState {
+	const derived = derivePattern({ soundingKey, shapeKey: state.draft.shapeKey });
+	return { ...state, draft: { ...derived, fontScale: state.draft.fontScale } };
+}
+
+/**
  * Intent 1 ("change the key", domain-model.md §1): apply a full
  * `(soundingKey, shapeKey, capo)` triple, typically a `suggestPatterns` row
  * for a new target sounding key.

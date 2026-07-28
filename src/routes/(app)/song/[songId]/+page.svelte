@@ -24,11 +24,16 @@
 
 	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
 	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
-	import { DEFAULT_COMFORT_ORDER, suggestPatterns } from '$lib/theory/pattern';
+	import { allCanonicalKeyNames } from '$lib/theory/notes';
 	import { parseChordPro } from '$lib/chart/chordpro';
 
 	import ChordChart from '$lib/play/ChordChart.svelte';
-	import { formatBadge, formatCapoHint, formatSuggestion } from '$lib/play/format';
+	import {
+		formatAnswerHeadline,
+		formatAnswerSubline,
+		formatBadge,
+		formatChipCapo
+	} from '$lib/play/format';
 	import { DEFAULT_FONT_SCALE, clampFontScale, stepFontScale } from '$lib/play/fontScale';
 	import {
 		applyJustForNow,
@@ -36,10 +41,8 @@
 		cancelDraft,
 		createPatternSession,
 		openDraft,
-		stepSoundingKeyTarget,
-		withCapo,
 		withShapeKey,
-		withSuggestion,
+		withSoundingKey,
 		withWorkingFontScale,
 		type PatternSessionState,
 		type PlayPattern
@@ -58,8 +61,10 @@
 
 	let viewMode = $state<'both' | 'chordsOnly' | 'lyricsOnly'>('both');
 	let transposeSheetOpen = $state(false);
-	let keyStepTarget = $state<string | undefined>();
+	let moreShapesOpen = $state(false);
 	let bottomBarVisible = $state(true);
+
+	const keyNames = allCanonicalKeyNames();
 
 	const songId = $derived(page.params.songId);
 
@@ -116,7 +121,7 @@
 	function openTransposeSheet() {
 		if (!session) return;
 		session = openDraft(session);
-		keyStepTarget = undefined;
+		moreShapesOpen = false;
 		transposeSheetOpen = true;
 	}
 
@@ -127,38 +132,25 @@
 	function handleSheetClosed() {
 		if (!session) return;
 		session = cancelDraft(session);
-		keyStepTarget = undefined;
 	}
 
-	function stepKey(direction: 1 | -1) {
+	/** "Play in key" picker (task D3, intent 1): keep shape, pick a new sounding key. */
+	function pickSoundingKey(key: string) {
 		if (!session) return;
-		const base = keyStepTarget ?? session.draft.soundingKey;
-		keyStepTarget = stepSoundingKeyTarget(base, direction);
-	}
-
-	const keySuggestions = $derived(
-		keyStepTarget ? suggestPatterns(keyStepTarget, { comfortOrder: DEFAULT_COMFORT_ORDER }) : []
-	);
-
-	function pickSuggestion(suggestion: { soundingKey: string; shapeKey: string; capo: number }) {
-		if (!session) return;
-		session = withSuggestion(session, suggestion);
-		keyStepTarget = undefined;
+		session = withSoundingKey(session, key);
 	}
 
 	const shapeChoices = $derived(
 		session ? shapeOptions({ soundingKey: session.draft.soundingKey }) : []
 	);
+	const comfortShapeChoices = $derived(shapeChoices.slice(0, 5));
+	const moreShapeChoices = $derived(shapeChoices.slice(5));
+	const visibleShapeChoices = $derived(moreShapesOpen ? shapeChoices : comfortShapeChoices);
 
+	/** "With shapes" picker (task D3, intent 2): keep sounding key, pick a new shape. */
 	function pickShape(option: ShapeOption) {
 		if (!session || option.disabled) return;
 		session = withShapeKey(session, option.shapeKey);
-	}
-
-	function stepCapo(direction: 1 | -1) {
-		if (!session) return;
-		const next = Math.min(9, Math.max(0, session.draft.capo + direction));
-		session = withCapo(session, next);
 	}
 
 	async function handleSaveAsMyPattern() {
@@ -356,60 +348,37 @@
 
 	<Sheet bind:open={transposeSheetOpen} title="Transpose" onclose={handleSheetClosed}>
 		<div class="flex flex-col gap-6 pb-2">
-			<section class="flex flex-col gap-2">
-				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Change the key</h3>
-				<div class="flex items-center justify-between gap-3">
-					<button
-						type="button"
-						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink"
-						aria-label="Step sounding key down a semitone"
-						onclick={() => stepKey(-1)}
-					>
-						<Minus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-					</button>
-					<span class="text-[20px] font-semibold text-ink">
-						Sounds in {keyStepTarget ?? session.draft.soundingKey}
-					</span>
-					<button
-						type="button"
-						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink"
-						aria-label="Step sounding key up a semitone"
-						onclick={() => stepKey(1)}
-					>
-						<Plus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-					</button>
-				</div>
-				{#if keyStepTarget}
-					<div class="flex flex-col gap-1.5 pt-1">
-						{#each keySuggestions as suggestion (suggestion.shapeKey)}
-							<button
-								type="button"
-								class="rounded-lg border border-line px-3 py-2 text-left text-[15px] text-ink"
-								onclick={() => pickSuggestion(suggestion)}
-							>
-								{formatSuggestion(suggestion)}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</section>
+			<!-- The answer: "I want to play in key X, with shape Y — tell me the
+			     capo." Big and unmissable, replaces the old three-stepper cluster
+			     (task D3). -->
+			<div class="flex flex-col gap-0.5 pt-1">
+				<span class="text-[28px] font-bold text-ink">{formatAnswerHeadline(session.draft)}</span>
+				<span class="text-[15px] text-ink-2">{formatAnswerSubline(session.draft)}</span>
+			</div>
 
 			<section class="flex flex-col gap-2">
-				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Change how I play it</h3>
-				<div class="grid grid-cols-4 gap-2">
-					{#each shapeChoices as option (option.shapeKey)}
+				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Play in key</h3>
+				<div class="flex flex-wrap gap-2">
+					{#each keyNames as key (key)}
 						<button
 							type="button"
-							disabled={option.disabled}
-							class="flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-[15px] disabled:opacity-40 {session
-								.draft.shapeKey === option.shapeKey
+							aria-pressed={session.draft.soundingKey === key}
+							aria-label="Play in key {key}"
+							class="chord flex min-w-[52px] flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-[15px] {session
+								.draft.soundingKey === key
 								? 'border-ink bg-ink text-bg'
 								: 'border-line text-ink'}"
-							onclick={() => pickShape(option)}
+							onclick={() => pickSoundingKey(key)}
 						>
-							<span>{option.shapeKey}</span>
-							{#if option.disabled}
-								<span class="text-[11px] text-ink-3">{formatCapoHint(option.capo)}</span>
+							<span>{key}</span>
+							{#if chart && key === chart.sourceKey}
+								<span
+									class="text-[10px] font-normal uppercase {session.draft.soundingKey === key
+										? 'text-bg/70'
+										: 'text-ink-2'}"
+								>
+									Original
+								</span>
 							{/if}
 						</button>
 					{/each}
@@ -417,29 +386,40 @@
 			</section>
 
 			<section class="flex flex-col gap-2">
-				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">Capo</h3>
-				<div class="flex items-center justify-between gap-3">
-					<button
-						type="button"
-						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink disabled:opacity-40"
-						aria-label="Decrease capo"
-						disabled={session.draft.capo <= 0}
-						onclick={() => stepCapo(-1)}
-					>
-						<Minus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-					</button>
-					<span class="text-[20px] font-semibold text-ink">
-						{session.draft.capo === 0 ? 'No capo' : `Capo ${session.draft.capo}`}
-					</span>
-					<button
-						type="button"
-						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line text-ink disabled:opacity-40"
-						aria-label="Increase capo"
-						disabled={session.draft.capo >= 9}
-						onclick={() => stepCapo(1)}
-					>
-						<Plus class="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-					</button>
+				<h3 class="text-[13px] font-semibold text-ink-2 uppercase">With shapes</h3>
+				<div class="flex flex-wrap gap-2">
+					{#each visibleShapeChoices as option (option.shapeKey)}
+						{@const selected = session.draft.shapeKey === option.shapeKey}
+						<button
+							type="button"
+							disabled={option.disabled}
+							aria-pressed={selected}
+							aria-label="{option.shapeKey} shapes · {formatChipCapo(option.capo)}"
+							class="chord flex min-w-[68px] flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-[15px] disabled:opacity-40 {selected
+								? 'border-ink bg-ink text-bg'
+								: 'border-line text-ink'}"
+							onclick={() => pickShape(option)}
+						>
+							<span>{option.shapeKey}</span>
+							<span class="text-[11px] {selected ? 'text-bg/70' : 'text-ink-2'}">
+								{formatChipCapo(option.capo)}
+							</span>
+							{#if option.suggested}
+								<span class="text-[10px] uppercase {selected ? 'text-bg/70' : 'text-ink-3'}">
+									Suggested
+								</span>
+							{/if}
+						</button>
+					{/each}
+					{#if !moreShapesOpen && moreShapeChoices.length > 0}
+						<button
+							type="button"
+							class="flex min-w-[68px] items-center justify-center rounded-lg border border-line px-3 py-2 text-[15px] text-ink-2"
+							onclick={() => (moreShapesOpen = true)}
+						>
+							More…
+						</button>
+					{/if}
 				</div>
 			</section>
 

@@ -12,6 +12,7 @@ import {
 	withCapo,
 	withFontScale,
 	withShapeKey,
+	withSoundingKey,
 	withSuggestion,
 	withWorkingFontScale
 } from './patternSession';
@@ -51,6 +52,26 @@ describe('capo stepper (withCapo)', () => {
 		expect(state.draft.capo).toBe(4);
 		// Ab (8) - 4 = 4 -> E.
 		expect(state.draft.shapeKey).toBe('E');
+	});
+});
+
+describe('"Play in key" picker (withSoundingKey)', () => {
+	it('keeps shapeKey, recomputes capo', () => {
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'A');
+		expect(state.draft.shapeKey).toBe('G');
+		// A (9) - G (7) = 2.
+		expect(state.draft.capo).toBe(2);
+		expect(state.draft.soundingKey).toBe('A');
+	});
+
+	it('matches derivePattern({soundingKey, shapeKey}) directly (task D3 mental model)', () => {
+		let state = createPatternSession(GOODNESS);
+		state = withSoundingKey(state, 'B');
+		state = withShapeKey(state, 'C');
+		// Selecting key K then shape S = derivePattern({soundingKey: K, shapeKey: S}).
+		// B (11) - C (0) = 11.
+		expect(state.draft).toMatchObject({ soundingKey: 'B', shapeKey: 'C', capo: 11 });
 	});
 });
 
