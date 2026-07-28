@@ -7,6 +7,7 @@
 	import MetadataForm from '$lib/ui/MetadataForm.svelte';
 	import TopBar from '$lib/ui/TopBar.svelte';
 	import { createSong } from '$lib/db/repo';
+	import { StorageQuotaError } from '$lib/db/store';
 	import {
 		buildCreateSongInput,
 		canSaveChart,
@@ -39,6 +40,9 @@
 	// one — after that, the picker stops following re-parses of `rawText`.
 	let keyManuallySet = $state(false);
 	let saving = $state(false);
+	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
+	// failure or unhandled rejection when a save hits the localStorage quota).
+	let saveError = $state<string | undefined>();
 	// Set once a grab succeeds; carried through to `createSong` on save so the
 	// chart keeps its provenance (mvp-spec.md F2: "save with sourceUrl
 	// attribution and the raw text preserved"). Editing the paste box
@@ -147,6 +151,7 @@
 	async function save() {
 		if (!parseState || !canSave) return;
 		saving = true;
+		saveError = undefined;
 		try {
 			const input = buildCreateSongInput(form, parseState.doc, parseState.initialPattern);
 			if (grabMeta) {
@@ -158,6 +163,9 @@
 			}
 			const result = await createSong(input);
 			await goto(resolve('/(app)/song/[songId]', { songId: result.song.id }));
+		} catch (err) {
+			saveError =
+				err instanceof StorageQuotaError ? err.message : 'Could not save — please try again.';
 		} finally {
 			saving = false;
 		}
@@ -230,6 +238,10 @@ Amazing grace, how sweet the sound"
 		</div>
 
 		<MetadataForm values={form} onchange={onMetadataChange} {patternChip} />
+
+		{#if saveError}
+			<p class="text-[13px] text-ink-2">{saveError}</p>
+		{/if}
 
 		<Button size="lg" disabled={!canSave} onclick={save}>
 			{saving ? 'Saving…' : 'Save'}

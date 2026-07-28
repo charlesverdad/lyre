@@ -18,7 +18,7 @@ test('library: row summary, lyric search, and delete', async ({ page }) => {
 	await page.getByRole('link', { name: 'Library' }).click();
 	await page.waitForURL(/\/library/);
 
-	// The row only renders once Dexie's live query resolves — see
+	// The row only renders once the library live query resolves — see
 	// library-empty.spec.ts's comment on the same cold-open timing.
 	const titleText = page.getByText(AMAZING_GRACE_TITLE, { exact: true });
 	await expect(titleText).toBeVisible({ timeout: 10_000 });

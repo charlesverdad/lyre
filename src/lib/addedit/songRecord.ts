@@ -1,7 +1,7 @@
 /**
  * Form-values <-> record mapping for the add/edit screens (mvp-spec.md F2).
- * Pure functions only — no DB access — so they're unit-testable without
- * Dexie/fake-indexeddb.
+ * Pure functions only — no DB access — so they're unit-testable without a
+ * store/localStorage fixture at all.
  */
 
 import { chartDocToChordPro } from '$lib/chart';

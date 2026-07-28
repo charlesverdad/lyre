@@ -49,7 +49,7 @@
 		return () => clearTimeout(timer);
 	});
 
-	// Dexie's `liveQuery` auto-tracks table reads *inside* the querier, but it
+	// `createLiveQuery` re-runs its querier on every store mutation, but it
 	// doesn't know about outside reactive deps like `sort`/`debouncedQuery` —
 	// so this effect tears down and recreates the subscription whenever they
 	// change, and otherwise leaves it running. That live subscription is also

@@ -47,7 +47,6 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "^1.27.0",
-		"dexie": "^4.4.4",
 		"fflate": "^0.8.3"
 	}
 }

@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { initTheme } from '$lib/ui/theme.svelte';
+	import { requestPersistentStorage } from '$lib/db/store';
 
 	let { children } = $props();
 
@@ -20,6 +21,9 @@
 		if ('serviceWorker' in navigator) {
 			navigator.serviceWorker.register(`${base}/service-worker.js`, { type: 'module' });
 		}
+		// Best-effort, never-blocking ask that the browser not evict this
+		// origin's storage under pressure (task E1, docs/PLAN-v0.3.md §E1).
+		requestPersistentStorage();
 	});
 </script>
 
