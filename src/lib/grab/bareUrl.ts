@@ -21,3 +21,15 @@ export function isBareUrl(text: string): boolean {
 	if (!trimmed || /\s/.test(trimmed)) return false;
 	return safeHttpUrl(trimmed) !== undefined;
 }
+
+/**
+ * Gate for the main paste textarea's `onpaste` handler (review fix, PR #19):
+ * a bare-URL paste should only auto-trigger the grab flow when the paste box
+ * is still effectively empty. Pasting a URL over/into existing chart text
+ * (e.g. the user is mid-edit, or added a source-credit link to an
+ * already-pasted chart) must insert normally instead of silently blowing
+ * away what's already there.
+ */
+export function shouldAutoGrabPastedUrl(currentText: string, pastedText: string): boolean {
+	return currentText.trim() === '' && isBareUrl(pastedText);
+}

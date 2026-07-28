@@ -17,8 +17,8 @@
 	} from '$lib/addedit';
 	import {
 		formatSourceAttribution,
-		isBareUrl,
 		safeHttpUrl,
+		shouldAutoGrabPastedUrl,
 		type GrabController,
 		type GrabResult
 	} from '$lib/grab';
@@ -109,16 +109,22 @@
 	}
 
 	/**
-	 * The main paste textarea's `onpaste`: when the clipboard payload is just
-	 * a bare URL (`isBareUrl`, `$lib/grab/bareUrl.ts`) — not a chart with a
-	 * link somewhere in it — treat it as a grab instead of inserting the URL
-	 * text into the paste box (mvp-spec.md F2: "just the URL can be pasted
-	 * and it would crawl itself"). Runs the exact same `GrabController` flow
-	 * as `GrabInput`'s own URL field.
+	 * The main paste textarea's `onpaste`: when the paste box is still empty
+	 * and the clipboard payload is just a bare URL (`shouldAutoGrabPastedUrl`,
+	 * `$lib/grab/bareUrl.ts`) — not a chart with a link somewhere in it, and
+	 * not a URL pasted over/into text that's already there — treat it as a
+	 * grab instead of inserting the URL text into the paste box (mvp-spec.md
+	 * F2: "just the URL can be pasted and it would crawl itself"). Runs the
+	 * exact same `GrabController` flow as `GrabInput`'s own URL field.
+	 *
+	 * The empty-box gate matters: without it, pasting a URL while the box
+	 * already has chart text in it (mid-edit, or adding a source link)
+	 * would `preventDefault()` the paste and silently overwrite the whole
+	 * textarea via the grab result instead of just inserting the link.
 	 */
 	function onPasteRawText(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text') ?? '';
-		if (isBareUrl(text) && grabController) {
+		if (shouldAutoGrabPastedUrl(rawText, text) && grabController) {
 			e.preventDefault();
 			grabController.grab(text.trim());
 		}

@@ -120,4 +120,60 @@ I once was lost, but now am found`;
 		expect(result.confidence).toBe('low');
 		expect(result.chartText).toBe(text.trim());
 	});
+
+	// Review regression (PR #19): a verse and the bridge that follows it were
+	// being split into two windows by a >3-blank-line stanza break, and only
+	// the "best" (higher signal-count) window survived — silently deleting a
+	// real section from the extracted chart. Blank runs, however long, must
+	// never split a window on their own; only a run of genuine noise lines
+	// does.
+	it('keeps both sections when a verse and bridge are separated by a long run of blank lines', () => {
+		const dump = `Verse 1
+             G
+Amazing grace, how sweet the sound
+           C          G
+That saved a wretch like me
+
+
+
+
+Bridge
+              G                 D
+I once was lost, but now am found
+           G          D      G
+Was blind, but now I see`;
+		const result = extractChartRegion(dump);
+		expect(result.confidence).toBe('high');
+		expect(result.chartText).toBe(dump.trim());
+		expect(result.chartText).toContain('Amazing grace, how sweet the sound');
+		expect(result.chartText).toContain('Bridge');
+		expect(result.chartText).toContain('Was blind, but now I see');
+	});
+
+	it('still splits on a genuine run of noise between two chord clusters and picks/trims the denser one', () => {
+		const dump = `Verse 1
+             G
+Amazing grace, how sweet the sound
+           C          G
+That saved a wretch like me
+
+Sponsored
+Buy our songbook today
+Limited time offer
+Free shipping on orders over $50
+Not affiliated with any publisher
+
+Tag
+G
+Amazing`;
+		const result = extractChartRegion(dump);
+		expect(result.confidence).toBe('high');
+		expect(result.chartText).toContain('Amazing grace, how sweet the sound');
+		// The noise block, and the smaller trailing "Tag" cluster it splits
+		// off from the denser Verse 1 cluster, are both dropped.
+		expect(result.chartText).not.toContain('Sponsored');
+		expect(result.chartText).not.toContain('Buy our songbook');
+		expect(result.chartText).not.toContain('Limited time offer');
+		expect(result.chartText).not.toContain('Tag');
+	});
 });

@@ -81,36 +81,68 @@ interface Window {
 
 /**
  * Slide through `kinds`, growing a window on every signal line and closing
- * it once a run of `MAX_INTERNAL_GAP + 1` non-signal lines is seen (stanza
- * breaks — blank lines, or the occasional annotation line — stay inside a
- * window; a real block of unrelated page chrome closes it). Returns every
- * candidate window found, in document order.
+ * it once a run of `MAX_INTERNAL_GAP + 1` **noise** lines is seen. Blank
+ * lines never close a window on their own, no matter how many run together
+ * — a verse and the bridge that follows it are routinely separated by
+ * several blank lines in a real chart (stanza breaks), and closing the
+ * window there would silently delete the bridge from the extracted text.
+ * Only a genuine run of unrelated page chrome (nav/footer prose, classified
+ * `noise`) closes a window. Returns every candidate window found, in
+ * document order.
  */
 function findWindows(kinds: LineKind[]): Window[] {
 	const windows: Window[] = [];
 	let cur: Window | null = null;
-	let gap = 0;
+	let noiseGap = 0;
 
 	for (let i = 0; i < kinds.length; i++) {
-		if (isSignalKind(kinds[i])) {
+		const kind = kinds[i];
+		if (isSignalKind(kind)) {
 			if (!cur) {
 				cur = { start: i, end: i, signalCount: 1 };
 			} else {
 				cur.end = i;
 				cur.signalCount++;
 			}
-			gap = 0;
-		} else if (cur) {
-			gap++;
-			if (gap > MAX_INTERNAL_GAP) {
+			noiseGap = 0;
+		} else if (kind === 'noise' && cur) {
+			noiseGap++;
+			if (noiseGap > MAX_INTERNAL_GAP) {
 				windows.push(cur);
 				cur = null;
-				gap = 0;
+				noiseGap = 0;
 			}
 		}
+		// Blank lines: no-op — they neither extend nor close a window, they
+		// just ride along inside whatever window (if any) is currently open.
 	}
 	if (cur) windows.push(cur);
 	return windows;
+}
+
+/**
+ * Belt-and-braces safety net on top of `findWindows`'s "only noise closes a
+ * window" rule: merge any two adjacent windows whose gap is exclusively
+ * blank lines (no noise at all). Should be a no-op given `findWindows`
+ * already never splits on blank-only runs, but guards against ever
+ * silently dropping a real section between two windows again.
+ */
+function mergeBlankOnlyGaps(kinds: LineKind[], windows: Window[]): Window[] {
+	if (windows.length <= 1) return windows;
+	const merged: Window[] = [{ ...windows[0] }];
+	for (let i = 1; i < windows.length; i++) {
+		const prev = merged[merged.length - 1];
+		const next = windows[i];
+		const between = kinds.slice(prev.end + 1, next.start);
+		const allBlank = between.every((k) => k === 'blank');
+		if (allBlank) {
+			prev.end = next.end;
+			prev.signalCount += next.signalCount;
+		} else {
+			merged.push({ ...next });
+		}
+	}
+	return merged;
 }
 
 /** Extend `start` backward (up to `HEADER_LOOKBACK` lines, skipping only blanks) to catch a preceding pattern-header line. */
@@ -133,7 +165,7 @@ function pullInHeader(kinds: LineKind[], start: number): number {
 export function extractChartRegion(text: string): ExtractRegionResult {
 	const rawLines = text.replace(/\r\n?/g, '\n').split('\n');
 	const kinds = classifyLines(rawLines);
-	const windows = findWindows(kinds);
+	const windows = mergeBlankOnlyGaps(kinds, findWindows(kinds));
 
 	if (windows.length === 0) {
 		return { chartText: text.trim(), confidence: 'low' };
