@@ -332,7 +332,13 @@ describe('export / import for collections (task E2)', () => {
 		expect(result.collectionsSkipped).toBe(0);
 
 		const detail = await getCollectionWithSongs(collection.id, target);
-		expect(detail?.collection).toEqual(collection);
+		// Compare against the *source store's* current record, not the
+		// `createCollection` return value: `addSongToCollection` bumps the
+		// collection's `updatedAt`, so the snapshot only matches when both
+		// writes land in the same millisecond (passes locally, fails in CI).
+		// Source-vs-target is also what "round-trips losslessly" actually means.
+		const source = await getCollectionWithSongs(collection.id, store);
+		expect(detail?.collection).toEqual(source?.collection);
 		expect(detail?.items.map((i) => i.song.id)).toEqual([a.song.id, b.song.id]);
 	});
 
