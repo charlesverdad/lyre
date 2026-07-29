@@ -31,7 +31,6 @@ export {
 	deleteSong,
 	listSongs,
 	listSongsWithDefaultPattern,
-	resolveDefaultChartsAndPatterns,
 	searchSongs,
 	getSongWithDetails,
 	setPreferredPattern,

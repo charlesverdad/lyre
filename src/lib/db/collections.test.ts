@@ -24,9 +24,9 @@ beforeEach(() => {
 
 function songInput(overrides: Partial<Omit<SongRecord, 'id' | 'createdAt' | 'updatedAt'>> = {}) {
 	return {
-		title: 'Goodness of God',
+		title: 'Amazing Grace',
 		aliases: [],
-		authors: ['Bethel Music'],
+		authors: ['John Newton'],
 		defaultKey: 'Ab',
 		topics: [],
 		...overrides
@@ -38,7 +38,7 @@ function chartInput(
 ) {
 	return {
 		name: 'Default',
-		chordproSource: '{title: Goodness of God}\n[G]I love You Lord',
+		chordproSource: '{title: Amazing Grace}\n[G]Amazing grace how sweet the sound',
 		sourceKey: 'Ab',
 		...overrides
 	};
@@ -106,7 +106,7 @@ describe('addSongToCollection', () => {
 	it('appends at the end and is idempotent', async () => {
 		const collection = await createCollection({ name: 'Sunday Set' }, store);
 		const a = await makeSong('Amazing Grace');
-		const b = await makeSong('Be Thou My Vision');
+		const b = await makeSong('Second Song');
 
 		await addSongToCollection(collection.id, a.song.id, store);
 		await addSongToCollection(collection.id, b.song.id, store);
@@ -204,6 +204,37 @@ describe('reorderCollection', () => {
 	it('is a silent no-op for a missing collection id', async () => {
 		await expect(reorderCollection('nonexistent', [], store)).resolves.toBeUndefined();
 	});
+
+	// Regression test (review fix, task E2): a duplicate id in the caller's
+	// list used to map to the *same* CollectionItemRecord object twice —
+	// pushed into doc.collectionItems twice, then `resequence` stomped that
+	// shared object's `position` on each pass. The persisted doc ended up
+	// with two rows sharing one id and one position, position 0 missing, and
+	// the at-most-once-per-collection invariant silently broken. E3's
+	// move-up/move-down handler rebuilding an array from a stale snapshot is
+	// a realistic way to produce a duplicate id, so this must be defensive
+	// against it, same as it already is against foreign ids.
+	it('collapses a duplicate id in the requested order to its first occurrence, never duplicating the row', async () => {
+		const collection = await createCollection({ name: 'Sunday Set' }, store);
+		const a = await makeSong('A');
+		const b = await makeSong('B');
+		await addSongToCollection(collection.id, a.song.id, store);
+		await addSongToCollection(collection.id, b.song.id, store);
+
+		await reorderCollection(collection.id, [a.song.id, a.song.id, b.song.id], store);
+
+		const detail = await getCollectionWithSongs(collection.id, store);
+		expect(detail?.items.map((i) => i.song.id)).toEqual([a.song.id, b.song.id]);
+		expect(detail?.items.map((i) => i.item.position)).toEqual([0, 1]);
+		// No duplicate rows (same id or same position) got written to the doc.
+		const rawItems = store.read((doc) =>
+			doc.collectionItems.filter((item) => item.collectionId === collection.id)
+		);
+		expect(rawItems).toHaveLength(2);
+		expect(new Set(rawItems.map((item) => item.id)).size).toBe(2);
+		const summaries = await listCollections(store);
+		expect(summaries.find((s) => s.collection.id === collection.id)?.songCount).toBe(2);
+	});
 });
 
 describe('deleteSong cascade into collection items', () => {
@@ -289,7 +320,7 @@ describe('export / import for collections (task E2)', () => {
 	it('round-trips collections and collectionItems losslessly', async () => {
 		const collection = await createCollection({ name: 'Sunday Set', description: 'AM' }, store);
 		const a = await makeSong('Amazing Grace');
-		const b = await makeSong('Be Thou My Vision');
+		const b = await makeSong('Second Song');
 		await addSongToCollection(collection.id, a.song.id, store);
 		await addSongToCollection(collection.id, b.song.id, store);
 
@@ -360,5 +391,44 @@ describe('export / import for collections (task E2)', () => {
 		const detail = await getCollectionWithSongs(collection.id, target);
 		expect(detail?.items.map((i) => i.song.id)).toEqual([a.song.id, b.song.id]);
 		expect(detail?.items.map((i) => i.item.position)).toEqual([0, 1]);
+	});
+
+	// Regression test (review fix, task E2): import is the one place data
+	// from an older/buggy/untrusted origin enters the store, so a manifest
+	// with two membership rows for the same (collectionId, songId) pair —
+	// e.g. a backup taken while the reorderCollection duplicate-id bug above
+	// was still live — must not be laundered into a doc that *looks* valid.
+	// Before this fix, the resequence step handed both rows distinct
+	// contiguous positions, hiding the at-most-once violation instead of
+	// surfacing it.
+	it('dedupes duplicate (collectionId, songId) membership rows in the manifest on import', async () => {
+		const collection = await createCollection({ name: 'Sunday Set' }, store);
+		const a = await makeSong('A');
+		const b = await makeSong('B');
+		await addSongToCollection(collection.id, a.song.id, store);
+		await addSongToCollection(collection.id, b.song.id, store);
+		const zip = await exportLibrary(store);
+
+		const { unzipSync, strFromU8, strToU8, zipSync } = await import('fflate');
+		const files = unzipSync(zip);
+		const manifest = JSON.parse(strFromU8(files['manifest.json']));
+		// Simulate a corrupt archive: duplicate the membership row for `a`
+		// (same collectionId/songId, different item id — mirrors what the
+		// reorderCollection bug used to persist).
+		const originalItem = manifest.collectionItems.find(
+			(item: { songId: string }) => item.songId === a.song.id
+		);
+		manifest.collectionItems.push({ ...originalItem, id: crypto.randomUUID() });
+		files['manifest.json'] = strToU8(JSON.stringify(manifest));
+		const corruptZip = zipSync(files, { level: 0 });
+
+		const target = createTestStore();
+		await importLibrary(corruptZip, target);
+
+		const detail = await getCollectionWithSongs(collection.id, target);
+		expect(detail?.items.map((i) => i.song.id)).toEqual([a.song.id, b.song.id]);
+		expect(detail?.items.map((i) => i.item.position)).toEqual([0, 1]);
+		const summaries = await listCollections(target);
+		expect(summaries.find((s) => s.collection.id === collection.id)?.songCount).toBe(2);
 	});
 });

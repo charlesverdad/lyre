@@ -124,8 +124,8 @@
 
 				<section class="space-y-0 border-y border-line">
 					<h2 class="py-2 text-[15px] font-semibold text-ink">ListItem</h2>
-					<ListItem title="Goodness of God" subtitle="Capo 2 · G shapes · sounds in A" />
-					<ListItem title="10,000 Reasons" subtitle="No capo · sounds in C" onclick={() => {}}>
+					<ListItem title="Amazing Grace" subtitle="Capo 2 · G shapes · sounds in A" />
+					<ListItem title="Rock of Ages" subtitle="No capo · sounds in C" onclick={() => {}}>
 						{#snippet trailing()}
 							<span class="text-ink-3">›</span>
 						{/snippet}

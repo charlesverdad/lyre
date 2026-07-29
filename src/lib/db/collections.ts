@@ -177,7 +177,22 @@ export async function getCollectionWithSongs(
 	});
 }
 
-/** Add a song to a collection, appended at the end. Idempotent: already-present song is a no-op. Missing collection/song id is a silent no-op. */
+/**
+ * Add a song to a collection, appended at the end. Idempotent: an
+ * already-present song is a no-op.
+ *
+ * A missing collection or song id is a **silent** no-op — a deliberate
+ * choice (review note, task E2), not an oversight: it matches the house
+ * convention every other `id`-keyed mutator in this file and in `repo.ts`
+ * already uses (`updateSong`, `updateCollection`, `removeSongFromCollection`,
+ * …), all of which treat "nothing to act on" as a no-op rather than an
+ * error. The tradeoff this creates for E3's add-to-collection sheet: this
+ * function's return value alone can't distinguish "added" from "nothing
+ * happened" (stale id, race with a delete elsewhere). Callers that need to
+ * tell those apart should re-read via `getCollectionWithSongs` /
+ * `listCollectionsForSong` after calling this, rather than trusting the
+ * `void` return.
+ */
 export async function addSongToCollection(
 	collectionId: string,
 	songId: string,
@@ -234,6 +249,15 @@ export async function removeSongFromCollection(
  *   - Ids in `orderedSongIds` that aren't actually members (foreign ids,
  *     already-removed songs) are ignored — reordering can never create
  *     membership.
+ *   - Duplicate ids in `orderedSongIds` are collapsed to their first
+ *     occurrence (review fix, task E2). Without this, a repeated id would
+ *     map to the *same* `CollectionItemRecord` object twice; pushing it into
+ *     `doc.collectionItems` twice produces two rows sharing one `id`, and
+ *     `resequence` would then stomp that shared object's `position` on each
+ *     pass — corrupting the collection (a song rendered twice, `songCount`
+ *     overcounted, position 0 missing) in a way later mutations can never
+ *     self-heal from. E3's move-up/move-down handler rebuilding an array
+ *     from a stale snapshot is a realistic way to produce a duplicate id.
  *   - Existing members `orderedSongIds` omits are **not** dropped: they're
  *     appended after the requested order, preserving their relative order.
  *     A UI that reorders a partial view of the collection (e.g. a filtered
@@ -252,8 +276,13 @@ export async function reorderCollection(
 		const current = doc.collectionItems.filter((item) => item.collectionId === collectionId);
 		const bySongId = new Map(current.map((item) => [item.songId, item]));
 
-		const requestedOrder = orderedSongIds.filter((songId) => bySongId.has(songId));
-		const requestedSet = new Set(requestedOrder);
+		const requestedSet = new Set<string>();
+		const requestedOrder: string[] = [];
+		for (const songId of orderedSongIds) {
+			if (!bySongId.has(songId) || requestedSet.has(songId)) continue;
+			requestedSet.add(songId);
+			requestedOrder.push(songId);
+		}
 
 		const omitted = current
 			.filter((item) => !requestedSet.has(item.songId))

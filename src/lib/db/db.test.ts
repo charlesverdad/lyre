@@ -16,6 +16,7 @@ import {
 	updateSongAndChart
 } from './repo';
 import { exportLibrary, importLibrary } from './exportImport';
+import { addSongToCollection, createCollection } from './collections';
 import type { ChartRecord, SongRecord } from '$lib/theory/types';
 
 let store: LyreStore;
@@ -26,9 +27,9 @@ beforeEach(() => {
 
 function songInput(overrides: Partial<Omit<SongRecord, 'id' | 'createdAt' | 'updatedAt'>> = {}) {
 	return {
-		title: 'Goodness of God',
+		title: 'Amazing Grace',
 		aliases: [],
-		authors: ['Bethel Music'],
+		authors: ['John Newton'],
 		defaultKey: 'Ab',
 		topics: [],
 		...overrides
@@ -40,7 +41,7 @@ function chartInput(
 ) {
 	return {
 		name: 'Default',
-		chordproSource: '{title: Goodness of God}\n[G]I love You Lord',
+		chordproSource: '{title: Amazing Grace}\n[G]Amazing grace how sweet the sound',
 		sourceKey: 'Ab',
 		...overrides
 	};
@@ -63,8 +64,8 @@ describe('createSong', () => {
 		expect(result.pattern?.isPreferred).toBe(true);
 
 		const details = await getSongWithDetails(result.song.id, store);
-		expect(details?.song.title).toBe('Goodness of God');
-		expect(details?.charts[0].chordproSource).toContain('I love You Lord');
+		expect(details?.song.title).toBe('Amazing Grace');
+		expect(details?.charts[0].chordproSource).toContain('Amazing grace how sweet the sound');
 	});
 
 	it('creates a song with no initial pattern when omitted', async () => {
@@ -80,11 +81,11 @@ describe('updateSong / updateChart', () => {
 		const { song, chart } = await createSong({ song: songInput(), chart: chartInput() }, store);
 
 		await new Promise((resolve) => setTimeout(resolve, 2));
-		await updateSong(song.id, { title: 'Goodness of God (Live)' }, store);
+		await updateSong(song.id, { title: 'Amazing Grace (Live)' }, store);
 		await updateChart(chart.id, { name: 'Acoustic' }, store);
 
 		const details = await getSongWithDetails(song.id, store);
-		expect(details?.song.title).toBe('Goodness of God (Live)');
+		expect(details?.song.title).toBe('Amazing Grace (Live)');
 		expect(details?.song.updatedAt).not.toBe(song.updatedAt);
 		expect(details?.charts[0].name).toBe('Acoustic');
 	});
@@ -102,7 +103,7 @@ describe('updateSongAndChart', () => {
 		await updateSongAndChart(
 			{
 				songId: song.id,
-				songPatch: { title: 'Goodness of God (Live)' },
+				songPatch: { title: 'Amazing Grace (Live)' },
 				chartId: chart.id,
 				chartPatch: { name: 'Acoustic' }
 			},
@@ -110,7 +111,7 @@ describe('updateSongAndChart', () => {
 		);
 
 		const details = await getSongWithDetails(song.id, store);
-		expect(details?.song.title).toBe('Goodness of God (Live)');
+		expect(details?.song.title).toBe('Amazing Grace (Live)');
 		expect(details?.charts[0].name).toBe('Acoustic');
 	});
 
@@ -442,7 +443,7 @@ describe('listSongsWithDefaultPattern', () => {
 	it('picks the preferred pattern of the chart named "Default"', async () => {
 		const { song, chart } = await createSong(
 			{
-				song: songInput({ title: 'Goodness of God' }),
+				song: songInput(),
 				chart: chartInput({ name: 'Default' }),
 				pattern: { label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: 2 }
 			},
@@ -521,8 +522,8 @@ describe('searchSongs', () => {
 	it('matches title, author, and lyrics case-insensitively', async () => {
 		await createSong(
 			{
-				song: songInput({ title: 'Goodness of God', authors: ['Bethel Music'] }),
-				chart: chartInput({ chordproSource: '[G]I love You [C]Lord' })
+				song: songInput({ title: 'Rock of Ages', authors: ['Augustus Toplady'] }),
+				chart: chartInput({ chordproSource: '[G]Rock of [C]Ages cleft for me' })
 			},
 			store
 		);
@@ -534,8 +535,8 @@ describe('searchSongs', () => {
 			store
 		);
 
-		expect((await searchSongs('goodness', store)).map((s) => s.title)).toEqual(['Goodness of God']);
-		expect((await searchSongs('BETHEL', store)).map((s) => s.title)).toEqual(['Goodness of God']);
+		expect((await searchSongs('rock', store)).map((s) => s.title)).toEqual(['Rock of Ages']);
+		expect((await searchSongs('TOPLADY', store)).map((s) => s.title)).toEqual(['Rock of Ages']);
 		expect((await searchSongs('sweet the sound', store)).map((s) => s.title)).toEqual([
 			'Amazing Grace'
 		]);
@@ -553,7 +554,7 @@ describe('export / import round trip', () => {
 	it('is lossless for songs, charts, and patterns', async () => {
 		const first = await createSong(
 			{
-				song: songInput({ title: 'Goodness of God' }),
+				song: songInput(),
 				chart: chartInput(),
 				pattern: { label: 'My usual', soundingKey: 'A', shapeKey: 'G', capo: 2 }
 			},
@@ -564,7 +565,7 @@ describe('export / import round trip', () => {
 			store
 		);
 		await createSong(
-			{ song: songInput({ title: 'Amazing Grace' }), chart: chartInput({ name: 'Hymnal' }) },
+			{ song: songInput({ title: 'Rock of Ages' }), chart: chartInput({ name: 'Hymnal' }) },
 			store
 		);
 
@@ -592,7 +593,7 @@ describe('export / import round trip', () => {
 
 	it('skips songs whose id already exists on import, keeping others', async () => {
 		const existing = await createSong(
-			{ song: songInput({ title: 'Goodness of God' }), chart: chartInput() },
+			{ song: songInput({ title: 'Rock of Ages' }), chart: chartInput() },
 			store
 		);
 
@@ -641,14 +642,20 @@ describe('export / import round trip', () => {
 		await expect(importLibrary(badZip, target)).rejects.toThrow(/schemaVersion/);
 	});
 
-	it('carries always-empty collections/collectionItems arrays through the manifest (task E1 plumbing for E2)', async () => {
-		await createSong({ song: songInput(), chart: chartInput() }, store);
+	it('carries real collections/collectionItems data through the manifest (task E2)', async () => {
+		const { song } = await createSong({ song: songInput(), chart: chartInput() }, store);
+		const collection = await createCollection({ name: 'Sunday Set' }, store);
+		await addSongToCollection(collection.id, song.id, store);
+
 		const zip = await exportLibrary(store);
 
 		const { unzipSync, strFromU8 } = await import('fflate');
 		const manifest = JSON.parse(strFromU8(unzipSync(zip)['manifest.json']));
-		expect(manifest.collections).toEqual([]);
-		expect(manifest.collectionItems).toEqual([]);
+		expect(manifest.schemaVersion).toBe(2);
+		expect(manifest.collections).toEqual([collection]);
+		expect(manifest.collectionItems).toMatchObject([
+			{ collectionId: collection.id, songId: song.id, position: 0 }
+		]);
 	});
 
 	it('accepts a genuine v1 archive missing the collections/collectionItems fields', async () => {

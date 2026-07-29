@@ -31,9 +31,9 @@ describe('createLiveQuery', () => {
 		await createSong(
 			{
 				song: {
-					title: 'Goodness of God',
+					title: 'Amazing Grace',
 					aliases: [],
-					authors: ['Bethel Music'],
+					authors: ['John Newton'],
 					defaultKey: 'Ab',
 					topics: []
 				},
@@ -44,7 +44,7 @@ describe('createLiveQuery', () => {
 		await flush();
 
 		expect(handle.value).toHaveLength(1);
-		expect(handle.value[0].title).toBe('Goodness of God');
+		expect(handle.value[0].title).toBe('Amazing Grace');
 
 		handle.destroy();
 	});

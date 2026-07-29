@@ -3,11 +3,14 @@ import { formatAuthorsInput, parseAuthorsInput } from './authors';
 
 describe('parseAuthorsInput', () => {
 	it('splits on commas and trims whitespace', () => {
-		expect(parseAuthorsInput('Chris Tomlin, Ed Cash')).toEqual(['Chris Tomlin', 'Ed Cash']);
+		expect(parseAuthorsInput('John Newton, Isaac Watts')).toEqual(['John Newton', 'Isaac Watts']);
 	});
 
 	it('drops empty entries from stray/trailing commas', () => {
-		expect(parseAuthorsInput('Chris Tomlin, , Ed Cash,')).toEqual(['Chris Tomlin', 'Ed Cash']);
+		expect(parseAuthorsInput('John Newton, , Isaac Watts,')).toEqual([
+			'John Newton',
+			'Isaac Watts'
+		]);
 	});
 
 	it('returns an empty array for blank input', () => {
@@ -18,11 +21,11 @@ describe('parseAuthorsInput', () => {
 
 describe('formatAuthorsInput', () => {
 	it('joins authors with ", "', () => {
-		expect(formatAuthorsInput(['Chris Tomlin', 'Ed Cash'])).toBe('Chris Tomlin, Ed Cash');
+		expect(formatAuthorsInput(['John Newton', 'Isaac Watts'])).toBe('John Newton, Isaac Watts');
 	});
 
 	it('round-trips through parseAuthorsInput', () => {
-		const authors = ['Chris Tomlin', 'Ed Cash'];
+		const authors = ['John Newton', 'Isaac Watts'];
 		expect(parseAuthorsInput(formatAuthorsInput(authors))).toEqual(authors);
 	});
 });
