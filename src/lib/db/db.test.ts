@@ -573,7 +573,12 @@ describe('export / import round trip', () => {
 		const target = createTestStore();
 		const result = await importLibrary(zip, target);
 
-		expect(result).toEqual({ songsImported: 2, songsSkipped: 0 });
+		expect(result).toEqual({
+			songsImported: 2,
+			songsSkipped: 0,
+			collectionsImported: 0,
+			collectionsSkipped: 0
+		});
 
 		const sortById = <T extends { id: string }>(records: T[]) =>
 			[...records].sort((a, b) => a.id.localeCompare(b.id));
@@ -608,7 +613,12 @@ describe('export / import round trip', () => {
 		const zip2 = await exportLibrary(store);
 
 		const result = await importLibrary(zip2, target);
-		expect(result).toEqual({ songsImported: 1, songsSkipped: 1 });
+		expect(result).toEqual({
+			songsImported: 1,
+			songsSkipped: 1,
+			collectionsImported: 0,
+			collectionsSkipped: 0
+		});
 
 		const targetSong = target.read((doc) => doc.songs.find((s) => s.id === existing.song.id));
 		expect(targetSong?.title).toBe('Edited Locally');
@@ -641,13 +651,18 @@ describe('export / import round trip', () => {
 		expect(manifest.collectionItems).toEqual([]);
 	});
 
-	it('accepts a v1-shaped archive missing the collections/collectionItems fields', async () => {
+	it('accepts a genuine v1 archive missing the collections/collectionItems fields', async () => {
+		// Simulates a real pre-E1 backup: schemaVersion 1, and the manifest
+		// literally never had `collections`/`collectionItems` keys (not just
+		// empty arrays) — the owner's real v1 backups look like this, and
+		// losing the ability to restore them is not acceptable.
 		await createSong({ song: songInput(), chart: chartInput() }, store);
 		const zip = await exportLibrary(store);
 
 		const { unzipSync, strFromU8, strToU8, zipSync } = await import('fflate');
 		const files = unzipSync(zip);
 		const manifest = JSON.parse(strFromU8(files['manifest.json']));
+		manifest.schemaVersion = 1;
 		delete manifest.collections;
 		delete manifest.collectionItems;
 		files['manifest.json'] = strToU8(JSON.stringify(manifest));
@@ -656,7 +671,9 @@ describe('export / import round trip', () => {
 		const target = createTestStore();
 		await expect(importLibrary(legacyZip, target)).resolves.toEqual({
 			songsImported: 1,
-			songsSkipped: 0
+			songsSkipped: 0,
+			collectionsImported: 0,
+			collectionsSkipped: 0
 		});
 	});
 });

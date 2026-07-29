@@ -18,7 +18,7 @@
  * `store: LyreStore`, so no call site needed logic changes beyond the type.
  */
 
-import type { LyreStore } from './store';
+import type { LyreStore, LibraryDoc } from './store';
 import { defaultStore } from './store';
 import type { SongRecord, ChartRecord, PatternRecord } from '$lib/theory/types';
 
@@ -165,7 +165,7 @@ export async function updateSongAndChart(
 	});
 }
 
-/** Delete a song, cascading to its charts and their patterns. */
+/** Delete a song, cascading to its charts, their patterns, and (task E2) its collection items. */
 export async function deleteSong(id: string, store: LyreStore = defaultStore): Promise<void> {
 	store.mutate((doc) => {
 		const chartIds = new Set(
@@ -174,6 +174,26 @@ export async function deleteSong(id: string, store: LyreStore = defaultStore): P
 		doc.patterns = doc.patterns.filter((pattern) => !chartIds.has(pattern.chartId));
 		doc.charts = doc.charts.filter((chart) => chart.songId !== id);
 		doc.songs = doc.songs.filter((song) => song.id !== id);
+
+		// docs/PLAN-v0.3.md §E2: deleting a song deletes its collection items
+		// (the reverse of deleting a collection, which never touches songs).
+		// Resequence every collection that lost an item so positions stay
+		// contiguous 0..n-1, matching the invariant every collections.ts
+		// mutator enforces.
+		const affectedCollectionIds = new Set(
+			doc.collectionItems.filter((item) => item.songId === id).map((item) => item.collectionId)
+		);
+		if (affectedCollectionIds.size > 0) {
+			doc.collectionItems = doc.collectionItems.filter((item) => item.songId !== id);
+			for (const collectionId of affectedCollectionIds) {
+				const remaining = doc.collectionItems
+					.filter((item) => item.collectionId === collectionId)
+					.sort((a, b) => a.position - b.position);
+				remaining.forEach((item, index) => {
+					item.position = index;
+				});
+			}
+		}
 	});
 }
 
@@ -191,6 +211,69 @@ export interface SongListEntry {
 	defaultChart?: ChartRecord;
 	/** `defaultChart`'s preferred pattern, if it has one yet. */
 	preferredPattern?: PatternRecord;
+}
+
+/**
+ * Picks the chart a song's rows/summaries should use: the one named
+ * "Default", else the earliest-created chart. Single source of truth for
+ * this rule (task E2 review note: previously inlined only in
+ * `listSongsWithDefaultPattern`) — `collections.ts`'s
+ * `getCollectionWithSongs` must resolve the exact same chart per song or the
+ * library row and the collection row for the same song could show different
+ * pattern summaries.
+ */
+function selectDefaultChart(charts: readonly ChartRecord[]): ChartRecord | undefined {
+	if (charts.length === 0) return undefined;
+	return (
+		charts.find((chart) => chart.name === 'Default') ??
+		[...charts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+	);
+}
+
+/**
+ * Batched (no per-song query) resolution of each song's default chart and
+ * that chart's preferred pattern, for every id in `songIds`. Shared by
+ * `listSongsWithDefaultPattern` (below) and `collections.ts`'s
+ * `getCollectionWithSongs` — both need "the whole library already lives in
+ * memory, so resolve everything in one pass" instead of one query per song.
+ */
+export function resolveDefaultChartsAndPatterns(
+	doc: LibraryDoc,
+	songIds: Iterable<string>
+): {
+	defaultChartBySong: Map<string, ChartRecord>;
+	preferredPatternBySong: Map<string, PatternRecord>;
+} {
+	const idSet = new Set(songIds);
+	const chartsBySong = new Map<string, ChartRecord[]>();
+	for (const chart of doc.charts) {
+		if (!idSet.has(chart.songId)) continue;
+		const existing = chartsBySong.get(chart.songId);
+		if (existing) existing.push(chart);
+		else chartsBySong.set(chart.songId, [chart]);
+	}
+
+	const defaultChartBySong = new Map<string, ChartRecord>();
+	for (const [songId, songCharts] of chartsBySong) {
+		const defaultChart = selectDefaultChart(songCharts);
+		if (defaultChart) defaultChartBySong.set(songId, defaultChart);
+	}
+
+	const defaultChartIds = new Set([...defaultChartBySong.values()].map((chart) => chart.id));
+	const preferredByChart = new Map<string, PatternRecord>();
+	for (const pattern of doc.patterns) {
+		if (pattern.isPreferred && defaultChartIds.has(pattern.chartId)) {
+			preferredByChart.set(pattern.chartId, pattern);
+		}
+	}
+
+	const preferredPatternBySong = new Map<string, PatternRecord>();
+	for (const [songId, chart] of defaultChartBySong) {
+		const preferred = preferredByChart.get(chart.id);
+		if (preferred) preferredPatternBySong.set(songId, preferred);
+	}
+
+	return { defaultChartBySong, preferredPatternBySong };
 }
 
 /**
@@ -212,36 +295,16 @@ export async function listSongsWithDefaultPattern(
 		const songs = sortSongsBy(doc.songs, sort);
 		if (songs.length === 0) return [];
 
-		const songIds = new Set(songs.map((song) => song.id));
-		const chartsBySong = new Map<string, ChartRecord[]>();
-		for (const chart of doc.charts) {
-			if (!songIds.has(chart.songId)) continue;
-			const existing = chartsBySong.get(chart.songId);
-			if (existing) existing.push(chart);
-			else chartsBySong.set(chart.songId, [chart]);
-		}
+		const { defaultChartBySong, preferredPatternBySong } = resolveDefaultChartsAndPatterns(
+			doc,
+			songs.map((song) => song.id)
+		);
 
-		const defaultChartBySong = new Map<string, ChartRecord>();
-		for (const [songId, songCharts] of chartsBySong) {
-			const defaultChart =
-				songCharts.find((chart) => chart.name === 'Default') ??
-				[...songCharts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-			defaultChartBySong.set(songId, defaultChart);
-		}
-
-		const defaultChartIds = new Set([...defaultChartBySong.values()].map((chart) => chart.id));
-		const preferredByChart = new Map<string, PatternRecord>();
-		for (const pattern of doc.patterns) {
-			if (pattern.isPreferred && defaultChartIds.has(pattern.chartId)) {
-				preferredByChart.set(pattern.chartId, pattern);
-			}
-		}
-
-		return songs.map((song) => {
-			const defaultChart = defaultChartBySong.get(song.id);
-			const preferredPattern = defaultChart ? preferredByChart.get(defaultChart.id) : undefined;
-			return { song, defaultChart, preferredPattern };
-		});
+		return songs.map((song) => ({
+			song,
+			defaultChart: defaultChartBySong.get(song.id),
+			preferredPattern: preferredPatternBySong.get(song.id)
+		}));
 	});
 }
 

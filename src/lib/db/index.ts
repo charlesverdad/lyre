@@ -31,11 +31,30 @@ export {
 	deleteSong,
 	listSongs,
 	listSongsWithDefaultPattern,
+	resolveDefaultChartsAndPatterns,
 	searchSongs,
 	getSongWithDetails,
 	setPreferredPattern,
 	savePattern,
 	touchLastPlayed
 } from './repo';
+export type {
+	CollectionSummary,
+	CollectionDetailItem,
+	CollectionDetail,
+	CreateCollectionInput,
+	UpdateCollectionPatch
+} from './collections';
+export {
+	createCollection,
+	updateCollection,
+	deleteCollection,
+	listCollections,
+	getCollectionWithSongs,
+	addSongToCollection,
+	removeSongFromCollection,
+	reorderCollection,
+	listCollectionsForSong
+} from './collections';
 export { SCHEMA_VERSION, exportLibrary, importLibrary } from './exportImport';
 export type { ImportResult } from './exportImport';
