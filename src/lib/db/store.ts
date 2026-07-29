@@ -183,11 +183,13 @@ export class LyreStore {
 		// Attached unconditionally here, not lazily in `subscribe()` (review
 		// fix, task E1): cache correctness must not depend on whether anyone
 		// is observing this store. A tab that never calls `subscribe()` (e.g.
-		// one sitting on a song's play screen, or the settings screen mid
-		// export) still needs its `#cache` invalidated by another tab's write
-		// — otherwise its next `mutate()` clones the *stale* cache and
-		// overwrites the whole single-key document, silently reverting
-		// whatever the other tab wrote.
+		// one sitting on the edit screen, or the settings screen mid export —
+		// note this is *not* the song play screen since task E3: its "Add to
+		// collection" sheet mounts a live query unconditionally on load, so it
+		// does subscribe) still needs its `#cache` invalidated by another
+		// tab's write — otherwise its next `mutate()` clones the *stale*
+		// cache and overwrites the whole single-key document, silently
+		// reverting whatever the other tab wrote.
 		this.#attachStorageListener();
 	}
 

@@ -102,18 +102,65 @@ Chart     { id, songId, name ("Default"), chordproSource, sourceKey,
 Pattern   { id, chartId, label ("My usual"), soundingKey, shapeKey, capo,
             isPreferred, fontScale?, autoscrollSpeed? }
 
-Collection { id, name, description?, songIds[] (ordered),
-             perSongOverrides { songId → pattern } }             # phase 1
+Collection      { id, name, description?, createdAt, updatedAt }        # v0.3
+CollectionItem  { id, collectionId, songId, position, note? }           # v0.3
 SetShare   — exported bundle of a collection: song refs (sourceUrl or
              CCLI#/title) + patterns + the leader's edit overlays # phase 2
 Topic      — free-form tags on Song, curated vocabulary later    # roadmap
 ```
 
+`Collection` is a named, ordered set of songs — a service set, a rehearsal
+list. `CollectionItem` is the membership join row between one `Collection`
+and one `Song`, carrying that song's position within the set (and an
+optional per-set flow note, e.g. "straight into the chorus"). A song can
+belong to any number of collections; a collection's membership is a list of
+these join rows, not an inline array on `Collection` itself, so the same
+cascade/invariant machinery that governs songs/charts/patterns applies here
+too.
+
 Invariants:
 
 - `Pattern`: `(shapeKey + capo) mod 12 == soundingKey`; `0 ≤ capo ≤ 11`.
 - Exactly one preferred pattern per chart.
-- Deleting a song cascades to charts and patterns; collections hold references and tolerate (flag) missing songs.
+- Deleting a song cascades to charts and patterns, **and** to that song's
+  `CollectionItem` rows in every collection it belonged to (the collections
+  themselves are untouched).
+- A song appears **at most once** per collection — `CollectionItem` is
+  idempotent to add (adding an already-member song is a no-op), never a
+  duplicate row.
+- `CollectionItem.position` stays contiguous `0..n-1` within a collection,
+  resequenced on every mutation that could open a gap or change order
+  (add/remove/reorder).
+- Deleting a `Collection` deletes its `CollectionItem` rows — **never** the
+  songs they reference. Collections are a view over songs, not a copy of
+  them.
+
+## 5a. Store of record
+
+The whole library — songs, charts, patterns, collections, collection items —
+lives as **one JSON document under a single `localStorage` key**
+(`lyre:library:v1`), not in IndexedDB. This replaced the original
+IndexedDB/Dexie store in v0.3: a personal songbook is small text (a chart is
+a few KB of ChordPro), so the ~5MB per-origin `localStorage` budget holds
+hundreds of songs, and a synchronous single-key document is simpler to
+reason about, inspect, and export than an async multi-table IndexedDB schema.
+A one-shot migration reads any pre-existing IndexedDB library on first boot
+and folds it into the new document; the IndexedDB database itself is never
+deleted, so it stays a safety net.
+
+Two things worth being honest about:
+
+- **The ~5MB quota is a hard ceiling**, not a soft one. A write that would
+  exceed it fails atomically (the in-memory document rolls back to its
+  pre-mutation state) and surfaces a typed `StorageQuotaError` with a
+  readable message ("Storage is full — export your library and remove some
+  songs") — never a silent failure or an unhandled rejection.
+- **`localStorage` is exactly as evictable as the IndexedDB store it
+  replaced.** Neither is durable storage: Safari's ITP, for one, clears both
+  after roughly a week of no visits to a non-installed site. This was not a
+  durability upgrade — it's a simplicity/ergonomics trade for a small-data
+  app. Export/import (F5, [mvp-spec.md](mvp-spec.md)) remains the actual
+  backup story regardless of which browser API holds the working copy.
 
 ## 6. Worked example: Goodness of God
 

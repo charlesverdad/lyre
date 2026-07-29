@@ -4,10 +4,10 @@ Post-MVP features in rough order. Each phase should ship independently useful.
 
 ## Phase 1 — Organize (collections & topics)
 
-- **Collections**: ordered, named groups ("Sunday morning", "Quiet time", "Christmas"). A song can be in many collections. Collection play mode: swipe/next-button between songs, each opening in its preferred pattern.
-- **Topics/tags**: free-form tags on songs (surrender, gratitude, communion, Advent…). Filter the library by tag; a topic is effectively a smart collection.
-- **Setlist niceties**: per-collection pattern overrides (the same song may sit in a different key inside a flow to match the surrounding songs), simple flow notes between songs ("pray here", "repeat bridge 2x").
-- **Grab improvements**: more site adapters (community PRs), re-fetch & diff against source, duplicate detection on grab (same URL/CCLI#/title).
+- **Collections** ✅ shipped v0.3: ordered, named groups ("Sunday morning", "Quiet time", "Christmas"). A song can be in many collections; add/remove/reorder (move up/down) from the collection screen, delete a collection without touching its songs. **Not yet shipped**: collection *play mode* (swipe/next-button between songs, each opening in its preferred pattern) — today, opening a song from a collection just goes to the normal song screen.
+- **Topics/tags**: free-form tags on songs (surrender, gratitude, communion, Advent…). Filter the library by tag; a topic is effectively a smart collection. Not started.
+- **Setlist niceties**: per-collection pattern overrides (the same song may sit in a different key inside a flow to match the surrounding songs), simple flow notes between songs ("pray here", "repeat bridge 2x"). `CollectionItem` already has an optional `note` field reserved for this ([domain model §5](domain-model.md)), but nothing in the UI reads or writes it yet — not started.
+- **Grab improvements**: more site adapters (community PRs), re-fetch & diff against source, duplicate detection on grab (same URL/CCLI#/title). Not started.
 
 ## Phase 2 — Lead & share (the worship-leader release)
 

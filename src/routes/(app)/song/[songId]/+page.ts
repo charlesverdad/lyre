@@ -1,4 +1,6 @@
-// This route is keyed by a runtime songId (IndexedDB-backed, task A3) that
+// This route is keyed by a runtime songId (a UUID minted at save time; store
+// of record is the localStorage-backed LyreStore as of task E1, originally
+// IndexedDB via Dexie at task A3) that
 // doesn't exist at build time, so it can't be crawled/prerendered like the
 // rest of the static shell (root `+layout.ts` sets `prerender = true`
 // globally). `adapter-static`'s `fallback: 'index.html'` serves the SPA
