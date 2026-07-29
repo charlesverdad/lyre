@@ -4,7 +4,7 @@
 	 * the transpose sheet (domain-model.md §1), font scale + view toggles,
 	 * and a screen wake lock while it's open.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -15,14 +15,26 @@
 	import Music from '@lucide/svelte/icons/music';
 	import Mic from '@lucide/svelte/icons/mic';
 	import ListMusic from '@lucide/svelte/icons/list-music';
+	import FolderPlus from '@lucide/svelte/icons/folder-plus';
+	import Check from '@lucide/svelte/icons/check';
 
 	import Badge from '$lib/ui/Badge.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import ListItem from '$lib/ui/ListItem.svelte';
 	import Sheet from '$lib/ui/Sheet.svelte';
 	import TopBar from '$lib/ui/TopBar.svelte';
 
 	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
+	import {
+		addSongToCollection,
+		createCollection,
+		listCollections,
+		listCollectionsForSong,
+		removeSongFromCollection,
+		type CollectionSummary
+	} from '$lib/db/collections';
+	import { createLiveQuery, type LiveQueryHandle } from '$lib/db/liveQuery.svelte';
 	import { StorageQuotaError } from '$lib/db/store';
 	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
 	import { parseChordPro } from '$lib/chart/chordpro';
@@ -236,6 +248,77 @@
 		goto(resolve('/(app)/edit/[songId]', { songId }));
 	}
 
+	// --- Add to collection (task E3, docs/PLAN-v0.3.md §E3) --------------
+
+	let addToCollectionOpen = $state(false);
+	let addToCollectionError = $state<string | undefined>();
+	let newCollectionName = $state('');
+	let creatingCollection = $state(false);
+
+	interface AddToCollectionData {
+		collections: CollectionSummary[];
+		memberIds: Set<string>;
+	}
+
+	// Live so a membership edit made here (or on the collection screen, in
+	// another tab, anywhere) reflects immediately — same `untrack` shape as
+	// the library screen's live query.
+	let addToCollectionHandle = $state<LiveQueryHandle<AddToCollectionData | undefined>>();
+	$effect(() => {
+		const id = songId;
+		const handle = createLiveQuery<AddToCollectionData | undefined>(
+			async () => {
+				if (!id) return undefined;
+				const [collections, memberOf] = await Promise.all([
+					listCollections(),
+					listCollectionsForSong(id)
+				]);
+				return { collections, memberIds: new Set(memberOf.map((c) => c.id)) };
+			},
+			untrack(() => addToCollectionHandle?.value)
+		);
+		addToCollectionHandle = handle;
+		return () => handle.destroy();
+	});
+
+	function openAddToCollection() {
+		addToCollectionError = undefined;
+		newCollectionName = '';
+		addToCollectionOpen = true;
+	}
+
+	async function toggleCollectionMembership(collectionId: string, isMember: boolean) {
+		if (!songId) return;
+		addToCollectionError = undefined;
+		try {
+			if (isMember) {
+				await removeSongFromCollection(collectionId, songId);
+			} else {
+				await addSongToCollection(collectionId, songId);
+			}
+		} catch (err) {
+			addToCollectionError =
+				err instanceof StorageQuotaError ? err.message : 'Could not update — please try again.';
+		}
+	}
+
+	async function createAndAddCollection() {
+		const name = newCollectionName.trim();
+		if (!name || !songId) return;
+		addToCollectionError = undefined;
+		creatingCollection = true;
+		try {
+			const collection = await createCollection({ name });
+			await addSongToCollection(collection.id, songId);
+			newCollectionName = '';
+		} catch (err) {
+			addToCollectionError =
+				err instanceof StorageQuotaError ? err.message : 'Could not create — please try again.';
+		} finally {
+			creatingCollection = false;
+		}
+	}
+
 	// --- Wake lock + collapsible bottom bar ------------------------------
 
 	onMount(() => {
@@ -307,6 +390,14 @@
 {:else if loadState === 'ready' && song && doc && session}
 	<TopBar title={song.title}>
 		{#snippet actions()}
+			<button
+				type="button"
+				class="flex h-9 w-9 items-center justify-center text-ink"
+				aria-label="Add to collection"
+				onclick={openAddToCollection}
+			>
+				<FolderPlus class="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+			</button>
 			<button
 				type="button"
 				class="flex h-9 w-9 items-center justify-center text-ink"
@@ -474,6 +565,58 @@
 				</Button>
 				<Button variant="ghost" size="lg" onclick={handleJustForNow}>Just for now</Button>
 			</div>
+		</div>
+	</Sheet>
+
+	<!-- Add to collection: every collection with a checkmark for membership
+	     (tap toggles), plus an inline "New collection" field (docs/PLAN-v0.3.md §E3). -->
+	<Sheet
+		bind:open={addToCollectionOpen}
+		title="Add to collection"
+		onclose={() => (addToCollectionOpen = false)}
+	>
+		<div class="flex flex-col gap-3 pb-2">
+			{#if addToCollectionError}
+				<p class="text-[13px] text-ink-2">{addToCollectionError}</p>
+			{/if}
+
+			{#if addToCollectionHandle?.value}
+				{#if addToCollectionHandle.value.collections.length === 0}
+					<p class="py-2 text-[15px] text-ink-2">No collections yet — create one below.</p>
+				{:else}
+					<div class="-mx-4">
+						{#each addToCollectionHandle.value.collections as { collection, songCount } (collection.id)}
+							{@const isMember = addToCollectionHandle.value.memberIds.has(collection.id)}
+							<ListItem
+								title={collection.name}
+								subtitle={songCount === 0
+									? 'No songs yet'
+									: `${songCount} ${songCount === 1 ? 'song' : 'songs'}`}
+								onclick={() => toggleCollectionMembership(collection.id, isMember)}
+							>
+								{#snippet trailing()}
+									{#if isMember}
+										<Check class="h-5 w-5 text-ink" strokeWidth={2} aria-hidden="true" />
+									{/if}
+								{/snippet}
+							</ListItem>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+
+			<label class="flex flex-col gap-1.5 border-t border-line pt-3">
+				<span class="text-[13px] font-semibold text-ink-2">New collection</span>
+				<div class="flex gap-2">
+					<input
+						type="text"
+						class="w-full min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-3 focus:outline-none"
+						placeholder="e.g. Sunday service"
+						bind:value={newCollectionName}
+					/>
+					<Button onclick={createAndAddCollection} disabled={creatingCollection}>Add</Button>
+				</div>
+			</label>
 		</div>
 	</Sheet>
 {/if}
