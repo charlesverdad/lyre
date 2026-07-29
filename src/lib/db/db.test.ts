@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LyreStore } from './store';
-import { createTestStore } from './store';
+import { createTestStore, StorageQuotaError } from './store';
 import {
 	createSong,
 	deleteSong,
@@ -12,7 +12,8 @@ import {
 	setPreferredPattern,
 	touchLastPlayed,
 	updateChart,
-	updateSong
+	updateSong,
+	updateSongAndChart
 } from './repo';
 import { exportLibrary, importLibrary } from './exportImport';
 import type { ChartRecord, SongRecord } from '$lib/theory/types';
@@ -91,6 +92,64 @@ describe('updateSong / updateChart', () => {
 	it('is a silent no-op for a missing id, matching the old Dexie `update` behavior', async () => {
 		await expect(updateSong('nonexistent', { title: 'x' }, store)).resolves.toBeUndefined();
 		await expect(updateChart('nonexistent', { name: 'x' }, store)).resolves.toBeUndefined();
+	});
+});
+
+describe('updateSongAndChart', () => {
+	it('applies both patches', async () => {
+		const { song, chart } = await createSong({ song: songInput(), chart: chartInput() }, store);
+
+		await updateSongAndChart(
+			{
+				songId: song.id,
+				songPatch: { title: 'Goodness of God (Live)' },
+				chartId: chart.id,
+				chartPatch: { name: 'Acoustic' }
+			},
+			store
+		);
+
+		const details = await getSongWithDetails(song.id, store);
+		expect(details?.song.title).toBe('Goodness of God (Live)');
+		expect(details?.charts[0].name).toBe('Acoustic');
+	});
+
+	// Review fix (task E1, worth-fixing #5): the edit screen used to call
+	// `updateSong` then `updateChart` as two separate `store.mutate`s, so a
+	// quota failure on the second write persisted the song patch but lost the
+	// chart patch it was submitted together with. `updateSongAndChart` does
+	// both in one `mutate` call, so it's genuinely atomic: a failure leaves
+	// *neither* patch applied.
+	it('is a single store.mutate call, so a quota failure on the combined write leaves neither patch applied', async () => {
+		const { song, chart } = await createSong({ song: songInput(), chart: chartInput() }, store);
+
+		const mutateSpy = vi.spyOn(store, 'mutate');
+		mutateSpy.mockImplementationOnce((fn) => {
+			// Let the mutator run (so we can assert it never persists), then
+			// force the same quota failure `store.mutate` itself would surface.
+			const draft = structuredClone(store.read((d) => d));
+			fn(draft);
+			throw new StorageQuotaError();
+		});
+
+		await expect(
+			updateSongAndChart(
+				{
+					songId: song.id,
+					songPatch: { title: 'Should not persist' },
+					chartId: chart.id,
+					chartPatch: { name: 'Should not persist either' }
+				},
+				store
+			)
+		).rejects.toThrow(StorageQuotaError);
+
+		expect(mutateSpy).toHaveBeenCalledTimes(1);
+		const details = await getSongWithDetails(song.id, store);
+		expect(details?.song.title).toBe(song.title);
+		expect(details?.charts[0].name).toBe(chart.name);
+
+		mutateSpy.mockRestore();
 	});
 });
 

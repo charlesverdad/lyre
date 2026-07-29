@@ -13,19 +13,21 @@ export {
 	LIBRARY_STORAGE_KEY
 } from './store';
 export type { LibraryDoc } from './store';
-export { migrateFromIndexedDbOnce } from './migrateFromIndexedDb';
+export { migrateFromIndexedDbOnce, getMigrationFailure } from './migrateFromIndexedDb';
 export type {
 	SongSort,
 	SongWithDetails,
 	CreateSongInput,
 	CreateSongResult,
 	SavePatternInput,
-	SongListEntry
+	SongListEntry,
+	UpdateSongAndChartInput
 } from './repo';
 export {
 	createSong,
 	updateSong,
 	updateChart,
+	updateSongAndChart,
 	deleteSong,
 	listSongs,
 	listSongsWithDefaultPattern,

@@ -6,8 +6,8 @@ import { IDBFactory } from 'fake-indexeddb';
 // `indexedDB`, not a module import — this file does the same so seeding and
 // migrating always talk to the same factory instance, including after
 // `beforeEach` below swaps it out for a fresh one.
-import { migrateFromIndexedDbOnce } from './migrateFromIndexedDb';
-import { InMemoryStorage, LyreStore } from './store';
+import { migrateFromIndexedDbOnce, getMigrationFailure } from './migrateFromIndexedDb';
+import { InMemoryStorage, LyreStore, LIBRARY_STORAGE_KEY } from './store';
 import type { SongRecord, ChartRecord, PatternRecord } from '$lib/theory/types';
 
 // fake-indexeddb's `indexedDB` is a shared module-level singleton — reset it
@@ -162,13 +162,14 @@ describe('migrateFromIndexedDbOnce', () => {
 		expect(store.hasPersistedDoc()).toBe(false);
 	});
 
-	it('logs and leaves the key unset (retry next boot) when reading the legacy database throws', async () => {
+	/**
+	 * Sets up a legacy db with real rows, then makes `IDBDatabase.transaction`
+	 * throw for the `patterns` store specifically — simulating a
+	 * browser-specific IndexedDB read failure partway through migration.
+	 * Shared by the two failure-recovery tests below (review fix #3).
+	 */
+	async function seedLegacyDatabaseThatFailsToRead(): Promise<() => void> {
 		await seedLegacyDatabase({ songs: [song], charts: [chart], patterns: [pattern] });
-
-		// Simulate a read failure partway through (e.g. a browser-specific
-		// IndexedDB quirk) by making `transaction()` throw for the last of the
-		// three parallel `getAll` calls — migrateFromIndexedDbOnce must catch
-		// this rather than let it bubble up and brick the app.
 		const originalTransaction = IDBDatabase.prototype.transaction;
 		const transactionSpy = vi
 			.spyOn(IDBDatabase.prototype, 'transaction')
@@ -179,15 +180,86 @@ describe('migrateFromIndexedDbOnce', () => {
 				if (args[0] === 'patterns') throw new Error('simulated IndexedDB failure');
 				return originalTransaction.apply(this, args);
 			});
+		return () => transactionSpy.mockRestore();
+	}
+
+	it('logs and leaves the library empty (retry next boot) when reading the legacy database throws', async () => {
+		const restoreTransaction = await seedLegacyDatabaseThatFailsToRead();
 
 		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const store = new LyreStore(new InMemoryStorage());
 
 		await expect(migrateFromIndexedDbOnce(store)).resolves.toBeUndefined();
-		expect(store.hasPersistedDoc()).toBe(false);
+		// `hasPersistedDoc()` is now true (the failure marker itself is a
+		// write), which is exactly why migration gating uses
+		// `hasSeededLibrary()` instead — see the "gates on parsed content"
+		// tests below.
+		expect(store.hasSeededLibrary()).toBe(false);
 		expect(consoleSpy).toHaveBeenCalled();
 
-		transactionSpy.mockRestore();
+		restoreTransaction();
 		consoleSpy.mockRestore();
+	});
+
+	// Review fix (task E1, blocker #3): a failed migration used to be a dead
+	// end — nothing recorded the failure, so there was no in-app signal and,
+	// once the user added one song by hand, the old raw-key gate treated the
+	// library as "already migrated" forever. Now: (a) failure is recorded on
+	// the doc so the UI can offer a retry, and (b) the empty-doc gate keeps
+	// retrying automatically on every boot until it actually succeeds.
+	it('records a migration-failure marker on failure, and clears it once a later retry succeeds', async () => {
+		const restoreTransaction = await seedLegacyDatabaseThatFailsToRead();
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const store = new LyreStore(new InMemoryStorage());
+
+		await migrateFromIndexedDbOnce(store);
+		expect(getMigrationFailure(store)).toBeTruthy();
+		expect(store.hasSeededLibrary()).toBe(false);
+
+		// Fix whatever was wrong (here: restore the real `transaction`) and
+		// simulate the next boot's automatic retry.
+		restoreTransaction();
+		await migrateFromIndexedDbOnce(store);
+
+		expect(getMigrationFailure(store)).toBeUndefined();
+		expect(store.read((d) => d.songs)).toEqual([song]);
+
+		vi.restoreAllMocks();
+	});
+
+	// (a) of review fix #3: a corrupt/degenerate persisted value must not
+	// permanently lock migration out — only a doc with real *parsed* content
+	// should count as "already migrated".
+	it('still migrates when the persisted value is corrupt JSON, not just when the key is absent', async () => {
+		await seedLegacyDatabase({ songs: [song], charts: [chart], patterns: [pattern] });
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		const storage = new InMemoryStorage();
+		storage.setItem(LIBRARY_STORAGE_KEY, '{not valid json');
+		const store = new LyreStore(storage);
+
+		// The raw key exists (corrupt), so the old `hasPersistedDoc()` gate
+		// would have skipped migration entirely here.
+		expect(store.hasPersistedDoc()).toBe(true);
+
+		await migrateFromIndexedDbOnce(store);
+
+		expect(store.read((d) => d.songs)).toEqual([song]);
+
+		vi.restoreAllMocks();
+	});
+
+	it('still migrates when the persisted value parses to a degenerate empty doc (e.g. "null")', async () => {
+		await seedLegacyDatabase({ songs: [song], charts: [chart], patterns: [pattern] });
+
+		const storage = new InMemoryStorage();
+		storage.setItem(LIBRARY_STORAGE_KEY, 'null');
+		const store = new LyreStore(storage);
+
+		expect(store.hasPersistedDoc()).toBe(true);
+
+		await migrateFromIndexedDbOnce(store);
+
+		expect(store.read((d) => d.songs)).toEqual([song]);
 	});
 });

@@ -7,7 +7,7 @@
 	import EmptyState from '$lib/ui/EmptyState.svelte';
 	import MetadataForm from '$lib/ui/MetadataForm.svelte';
 	import TopBar from '$lib/ui/TopBar.svelte';
-	import { getSongWithDetails, updateChart, updateSong } from '$lib/db/repo';
+	import { getSongWithDetails, updateSongAndChart } from '$lib/db/repo';
 	import { StorageQuotaError } from '$lib/db/store';
 	import type { ChartRecord, SongRecord } from '$lib/theory/types';
 	import {
@@ -92,8 +92,15 @@
 		saving = true;
 		saveError = undefined;
 		try {
-			await updateSong(song.id, buildSongUpdatePatch(form));
-			await updateChart(chart.id, buildChartUpdatePatch(parseState.doc));
+			// One commit for both patches (review fix, task E1): two separate
+			// `mutate` calls could quota-fail on the second and strand the
+			// metadata patch without the chart edit it was submitted with.
+			await updateSongAndChart({
+				songId: song.id,
+				songPatch: buildSongUpdatePatch(form),
+				chartId: chart.id,
+				chartPatch: buildChartUpdatePatch(parseState.doc)
+			});
 			await goto(resolve('/(app)/song/[songId]', { songId: song.id }));
 		} catch (err) {
 			saveError =

@@ -64,6 +64,9 @@
 	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
 	// failure or unhandled rejection when a save hits the localStorage quota).
 	let patternSaveError = $state<string | undefined>();
+	// Non-blocking: `touchLastPlayed`'s write failing shouldn't stop the song
+	// from being usable, just surface a quiet note (review fix, task E1).
+	let recentlyPlayedError = $state<string | undefined>();
 	let moreShapesOpen = $state(false);
 	let bottomBarVisible = $state(true);
 
@@ -84,6 +87,7 @@
 
 	async function load(id: string) {
 		loadState = 'loading';
+		recentlyPlayedError = undefined;
 		const details = await getSongWithDetails(id);
 		if (!details) {
 			loadState = 'song-not-found';
@@ -120,8 +124,21 @@
 		viewMode = 'both';
 		loadState = 'ready';
 
-		// F1 "recently played" sort — stamp on every open, not gated on anything else.
-		await touchLastPlayed(id);
+		// F1 "recently played" sort — stamp on every open, not gated on anything
+		// else. A full-document write, so it can throw `StorageQuotaError` for a
+		// full-storage user — caught here (review fix, task E1) rather than
+		// left to reject the `void load(id)` call below unhandled; the song is
+		// already rendered by this point, so a failed timestamp shouldn't block
+		// reading it, just get a quiet inline note.
+		try {
+			await touchLastPlayed(id);
+		} catch (err) {
+			console.error('touchLastPlayed failed', err);
+			recentlyPlayedError =
+				err instanceof StorageQuotaError
+					? err.message
+					: "Couldn't update recently-played — storage write failed.";
+		}
 	}
 
 	// --- Transpose sheet -----------------------------------------------
@@ -306,6 +323,10 @@
 			<Badge>{formatBadge(session.working)}</Badge>
 		</button>
 	</div>
+
+	{#if recentlyPlayedError}
+		<p class="px-4 pb-3 text-[13px] text-ink-2">{recentlyPlayedError}</p>
+	{/if}
 
 	<div class="px-4 pt-1 pb-[calc(8rem+var(--safe-bottom))]">
 		<ChordChart

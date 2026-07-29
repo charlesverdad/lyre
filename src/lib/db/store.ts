@@ -32,6 +32,17 @@ export interface LibraryDoc {
 	patterns: PatternRecord[];
 	collections: CollectionRecord[];
 	collectionItems: CollectionItemRecord[];
+	/**
+	 * ISO timestamp of the most recent failed IndexedDB→localStorage
+	 * migration attempt (task E1 review fix), or absent if none is pending.
+	 * Lives inside the doc (not a separate storage key) so it stays atomic
+	 * with every other write; deliberately NOT part of the export/import
+	 * manifest (`exportImport.ts` only copies the fields it lists) since it's
+	 * a local recovery concern, not library content. `migrateFromIndexedDb.ts`
+	 * sets it on failure so the root layout can show a retry banner instead
+	 * of only logging, and clears it on a successful migration.
+	 */
+	migrationFailedAt?: string;
 }
 
 function emptyDoc(): LibraryDoc {
@@ -58,7 +69,8 @@ function normalizeDoc(raw: unknown): LibraryDoc {
 		charts: Array.isArray(doc.charts) ? doc.charts : [],
 		patterns: Array.isArray(doc.patterns) ? doc.patterns : [],
 		collections: Array.isArray(doc.collections) ? doc.collections : [],
-		collectionItems: Array.isArray(doc.collectionItems) ? doc.collectionItems : []
+		collectionItems: Array.isArray(doc.collectionItems) ? doc.collectionItems : [],
+		migrationFailedAt: typeof doc.migrationFailedAt === 'string' ? doc.migrationFailedAt : undefined
 	};
 }
 
@@ -109,13 +121,46 @@ export class InMemoryStorage implements Storage {
 	}
 }
 
-function defaultStorage(): Storage {
-	// `typeof localStorage === 'undefined'` also covers privacy modes that
-	// throw synchronously just accessing the property in some browsers, but
-	// SvelteKit's SSR/prerender pass (no `window`) is the case that matters
-	// here since the app is a pure client-side SPA (see src/routes/+layout.ts).
-	if (typeof localStorage === 'undefined') return new InMemoryStorage();
-	return localStorage;
+/**
+ * A real write/delete round-trip, not just "does `setItem` exist" — some
+ * browsers expose a `localStorage` object that only throws once you actually
+ * write to it (e.g. Safari private browsing historically; some
+ * enterprise-policy lockdowns).
+ */
+function probesAsWritable(storage: Storage): boolean {
+	const probeKey = `${LIBRARY_STORAGE_KEY}.__probe__`;
+	try {
+		storage.setItem(probeKey, '1');
+		storage.removeItem(probeKey);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Exported for direct test coverage of the privacy-mode/SecurityError
+ * fallback (review fix, task E1) — real usage is only the constructor's
+ * default parameter below.
+ */
+export function defaultStorage(): Storage {
+	// `localStorage` is a *declared* global, not a conditionally-defined one —
+	// merely referencing it (even via `typeof localStorage`) runs its getter,
+	// which throws a `SecurityError` (not just returns `undefined`) when
+	// storage is blocked: Chrome "block all cookies", a third-party-blocked
+	// iframe, Firefox `dom.storage.enabled=false`, some enterprise lockdowns.
+	// SvelteKit's SSR/prerender pass (no `window` at all) is a different case
+	// covered by the same try/catch. Either way, this must never throw — it
+	// runs at module evaluation via `export const defaultStore = new
+	// LyreStore()`, and an uncaught throw there fails the whole bundle to
+	// evaluate (blank screen, no error UI) rather than degrading gracefully.
+	try {
+		const storage = localStorage;
+		if (probesAsWritable(storage)) return storage;
+	} catch {
+		// Fall through to the in-memory fallback below.
+	}
+	return new InMemoryStorage();
 }
 
 /**
@@ -135,11 +180,45 @@ export class LyreStore {
 	constructor(storage: Storage = defaultStorage(), key: string = LIBRARY_STORAGE_KEY) {
 		this.#storage = storage;
 		this.#key = key;
+		// Attached unconditionally here, not lazily in `subscribe()` (review
+		// fix, task E1): cache correctness must not depend on whether anyone
+		// is observing this store. A tab that never calls `subscribe()` (e.g.
+		// one sitting on a song's play screen, or the settings screen mid
+		// export) still needs its `#cache` invalidated by another tab's write
+		// — otherwise its next `mutate()` clones the *stale* cache and
+		// overwrites the whole single-key document, silently reverting
+		// whatever the other tab wrote.
+		this.#attachStorageListener();
 	}
 
-	/** True if a doc has already been persisted under this store's key. */
+	/**
+	 * True if the raw key has ever been written — a corrupt/degenerate value
+	 * (unparseable JSON, or valid JSON that normalizes to an empty doc, e.g.
+	 * `"null"`) still counts. Not what migration gating should use (see
+	 * `hasSeededLibrary`) — kept as a cheap, allocation-free existence check
+	 * for callers that only care "did `mutate` ever run".
+	 */
 	hasPersistedDoc(): boolean {
 		return this.#storage.getItem(this.#key) !== null;
+	}
+
+	/**
+	 * True if the *parsed* doc has any real content — any song, chart,
+	 * pattern, collection, or collection item. Forces a load (so corrupt JSON
+	 * gets quarantined first) rather than trusting raw key presence, which is
+	 * the point: a corrupt or degenerate persisted value (`hasPersistedDoc()`
+	 * true, but nothing usable in it) must not permanently lock out the
+	 * IndexedDB migration (review fix, task E1 — see `migrateFromIndexedDb.ts`).
+	 */
+	hasSeededLibrary(): boolean {
+		const doc = this.#ensureLoaded();
+		return (
+			doc.songs.length > 0 ||
+			doc.charts.length > 0 ||
+			doc.patterns.length > 0 ||
+			doc.collections.length > 0 ||
+			doc.collectionItems.length > 0
+		);
 	}
 
 	#ensureLoaded(): LibraryDoc {
@@ -220,11 +299,12 @@ export class LyreStore {
 	/**
 	 * Fired after every committed mutation (this tab) and after any
 	 * `storage` event for this key (another tab writing the same origin's
-	 * localStorage). Returns an unsubscribe function.
+	 * localStorage — cache invalidation for that is wired up unconditionally
+	 * in the constructor, not here, so it works even with zero subscribers).
+	 * Returns an unsubscribe function.
 	 */
 	subscribe(listener: () => void): () => void {
 		this.#listeners.add(listener);
-		this.#attachStorageListener();
 		return () => {
 			this.#listeners.delete(listener);
 		};

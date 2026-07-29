@@ -17,6 +17,7 @@
 		searchSongs,
 		type SongSort
 	} from '$lib/db/repo';
+	import { StorageQuotaError } from '$lib/db/store';
 	import { formatPatternSummary, formatSongSubtitle } from '$lib/library/format';
 	import { loadSortPreference, saveSortPreference } from '$lib/library/sortPreference';
 
@@ -37,6 +38,9 @@
 	let debouncedQuery = $state('');
 	let deleteTarget = $state<LibraryRow | undefined>();
 	let deleteSheetOpen = $state(false);
+	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
+	// failure or unhandled rejection when a save/delete hits the quota).
+	let deleteError = $state<string | undefined>();
 
 	// F1: "instant client-side search" — debounce the query a touch so fast
 	// typing doesn't thrash the live query below, but it's still effectively
@@ -111,19 +115,30 @@
 	function openDeleteSheet(row: LibraryRow, event: Event) {
 		event.stopPropagation();
 		deleteTarget = row;
+		deleteError = undefined;
 		deleteSheetOpen = true;
 	}
 
 	async function confirmDelete() {
 		if (!deleteTarget) return;
-		await deleteSong(deleteTarget.id);
-		deleteSheetOpen = false;
-		deleteTarget = undefined;
+		deleteError = undefined;
+		try {
+			await deleteSong(deleteTarget.id);
+			deleteSheetOpen = false;
+			deleteTarget = undefined;
+		} catch (err) {
+			// Keep the sheet open with a readable message rather than an
+			// unhandled rejection (review fix, task E1) — the sheet staying
+			// open with no explanation would look like the tap did nothing.
+			deleteError =
+				err instanceof StorageQuotaError ? err.message : 'Could not delete — please try again.';
+		}
 	}
 
 	function cancelDelete() {
 		deleteSheetOpen = false;
 		deleteTarget = undefined;
+		deleteError = undefined;
 	}
 </script>
 
@@ -194,6 +209,9 @@
 		<p class="text-[15px] text-ink-2">
 			This removes the song, its charts, and every saved pattern. This can't be undone.
 		</p>
+		{#if deleteError}
+			<p class="text-[13px] text-ink-2">{deleteError}</p>
+		{/if}
 		<div class="flex flex-col gap-2">
 			<Button variant="destructive" size="lg" onclick={confirmDelete}>Delete song</Button>
 			<Button variant="ghost" size="lg" onclick={cancelDelete}>Cancel</Button>

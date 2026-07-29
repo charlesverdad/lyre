@@ -136,6 +136,35 @@ export async function updateChart(
 	});
 }
 
+export interface UpdateSongAndChartInput {
+	songId: string;
+	songPatch: Partial<Omit<SongRecord, 'id' | 'createdAt'>>;
+	chartId: string;
+	chartPatch: Partial<Omit<ChartRecord, 'id' | 'songId' | 'createdAt'>>;
+}
+
+/**
+ * Patch a song and one of its charts in a single commit (review fix, task
+ * E1). The edit screen used to call `updateSong` then `updateChart` as two
+ * separate `store.mutate`s — a `StorageQuotaError` on the second write
+ * (typically the chart, since it carries the larger ChordPro source) would
+ * persist the metadata patch but silently drop the chart edit while telling
+ * the user the save failed outright. One `mutate` call is atomic: either
+ * both patches land, or (on any error, including quota) neither does.
+ */
+export async function updateSongAndChart(
+	input: UpdateSongAndChartInput,
+	store: LyreStore = defaultStore
+): Promise<void> {
+	store.mutate((doc) => {
+		const timestamp = nowIso();
+		const song = doc.songs.find((s) => s.id === input.songId);
+		if (song) Object.assign(song, input.songPatch, { updatedAt: timestamp });
+		const chart = doc.charts.find((c) => c.id === input.chartId);
+		if (chart) Object.assign(chart, input.chartPatch, { updatedAt: timestamp });
+	});
+}
+
 /** Delete a song, cascading to its charts and their patterns. */
 export async function deleteSong(id: string, store: LyreStore = defaultStore): Promise<void> {
 	store.mutate((doc) => {

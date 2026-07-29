@@ -8,8 +8,13 @@
  *
  * Rules this file exists to uphold:
  *   - Never delete the IndexedDB database — it stays as a safety net.
- *   - A failure here must never brick the app: log, start empty, and leave
- *     the localStorage key unset so the next boot retries.
+ *   - A failure here must never brick the app, and must never be
+ *     unrecoverable (review fix): log loudly, record `doc.migrationFailedAt`
+ *     so the root layout can show a retry banner instead of only a console
+ *     line, and retry automatically on every later boot for as long as the
+ *     store's doc stays empty (`hasSeededLibrary()`, not raw key presence —
+ *     a corrupt/degenerate persisted value must not lock migration out
+ *     forever either).
  */
 
 import type { SongRecord, ChartRecord, PatternRecord } from '$lib/theory/types';
@@ -121,24 +126,74 @@ async function readLegacyLibrary(): Promise<LegacyLibrary | undefined> {
 
 /**
  * Migrates the legacy IndexedDB library into `store` if (and only if) the
- * store has no persisted doc yet. Safe to call on every boot — a no-op once
- * migrated (or once the store has any doc, migrated or freshly created).
+ * store has no real content yet (`hasSeededLibrary()` — the *parsed* doc,
+ * not raw key presence, so a corrupt/degenerate persisted value doesn't
+ * permanently block this). Safe to call on every boot: a no-op once the
+ * store has any songs/charts/patterns/collections/items, whether from a
+ * prior successful migration or from the user just using the app.
+ *
+ * Also the retry entry point for the root layout's failure banner — calling
+ * it again after a failure is exactly "retry".
  */
 export async function migrateFromIndexedDbOnce(store: LyreStore = defaultStore): Promise<void> {
-	if (store.hasPersistedDoc()) return;
+	if (store.hasSeededLibrary()) return;
 
 	try {
 		const legacy = await readLegacyLibrary();
-		if (!legacy) return; // No IndexedDB database (or nothing usable in it) — leave key unset, boot empty.
+		if (!legacy) {
+			// No IndexedDB database (or nothing usable in it) — nothing to
+			// migrate, not a failure. Clear any earlier failure marker so a
+			// stale retry banner doesn't linger once there's truly nothing left
+			// to retry.
+			clearMigrationFailure(store);
+			return;
+		}
 
 		store.mutate((doc) => {
 			doc.songs = legacy.songs;
 			doc.charts = legacy.charts;
 			doc.patterns = legacy.patterns;
+			doc.migrationFailedAt = undefined;
 		});
 	} catch (err) {
-		// Never brick the app on a migration failure: log loudly, start empty,
-		// and leave the key unset so a later boot retries from scratch.
-		console.error('migrateFromIndexedDbOnce: migration failed, starting empty library', err);
+		// Never brick the app on a migration failure: log loudly, leave the
+		// store's library content untouched (empty), and record a marker so
+		// this both retries automatically on the next boot (`hasSeededLibrary`
+		// is still false) and drives a dismissible retry banner in the UI —
+		// unlike a bare `console.error`, the user has an in-app way back.
+		console.error('migrateFromIndexedDbOnce: migration failed, will retry', err);
+		recordMigrationFailure(store);
+	}
+}
+
+function recordMigrationFailure(store: LyreStore): void {
+	try {
+		store.mutate((doc) => {
+			doc.migrationFailedAt = new Date().toISOString();
+		});
+	} catch (err) {
+		// If even recording the failure fails (e.g. quota), the automatic
+		// retry-on-next-boot path (gated on `hasSeededLibrary`, not this flag)
+		// still applies — only the UI banner is lost for this session.
+		console.error('migrateFromIndexedDbOnce: failed to record migration failure', err);
+	}
+}
+
+/**
+ * ISO timestamp of the most recent failed migration attempt, or `undefined`
+ * if none is pending — what the root layout's retry banner watches.
+ */
+export function getMigrationFailure(store: LyreStore = defaultStore): string | undefined {
+	return store.read((doc) => doc.migrationFailedAt);
+}
+
+function clearMigrationFailure(store: LyreStore): void {
+	if (store.read((doc) => doc.migrationFailedAt) === undefined) return;
+	try {
+		store.mutate((doc) => {
+			doc.migrationFailedAt = undefined;
+		});
+	} catch (err) {
+		console.error('migrateFromIndexedDbOnce: failed to clear migration failure marker', err);
 	}
 }
