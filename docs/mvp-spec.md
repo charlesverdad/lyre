@@ -11,7 +11,7 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 **Local-first PWA (installable web app), tablet/phone-first layout.** Rationale:
 
 - The primary play surface is a phone or tablet on a music stand; a PWA covers iOS/Android/desktop with one codebase and installs to the home screen.
-- Local-first (IndexedDB/SQLite-wasm) satisfies the offline principle with no backend to build, run, or secure for v0.1 — and no accounts.
+- Local-first (a single-key `localStorage` document as of v0.3, previously IndexedDB via Dexie — see [domain model §5](domain-model.md)) satisfies the offline principle with no backend to build, run, or secure — and no accounts.
 - Wake-lock, full-screen, and font scaling are all available to PWAs.
 
 (If native affordances become blocking — reliable wake-lock on older iOS, cross-origin fetching for the grab flow (see F2's CORS note), or a proper share-sheet target — wrap in Capacitor. Verify current stable framework versions at implementation time; do not pick from memory.)
@@ -26,6 +26,7 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 - Instant client-side search over title/author/lyrics (this is *library* search; catalog search of external sources is roadmap).
 - Sort: recently played, recently added, alphabetical.
 - Add / edit / delete song (delete confirms and cascades).
+- **Collections** (v0.3, [roadmap](roadmap.md) Phase 1): a segmented control (`Songs` | `Collections`) switches the library between the song list above and a list of named, ordered sets. Create/rename/delete a collection (delete keeps the songs — only the set itself goes); open one to see its songs in order, add/remove songs, and reorder with Move up/Move down (buttons, not drag-and-drop — see [domain model §5](domain-model.md)).
 
 ### F2 — Add a song: grab, or paste
 
@@ -60,7 +61,7 @@ The MVP is the smallest thing the owner can actually worship with: **save songs,
 
 ### F5 — Data safety
 
-- One-tap **export of the whole library** to a zip of ChordPro files + a JSON manifest (songs/patterns). Import of the same. This is the backup story until sync exists, and the anti-lock-in guarantee.
+- One-tap **export of the whole library** to a zip of ChordPro files + a JSON manifest (songs/patterns/collections, manifest schema v2 as of v0.3). Import of the same, including collections; a v1 archive (from before collections existed) still imports cleanly — it just adds no collections. This is the backup story until sync exists, and the anti-lock-in guarantee — doubly so now that the store of record is `localStorage`: it's evictable under storage pressure exactly like the IndexedDB store it replaced (see [domain model §5](domain-model.md)), so export is the only durable copy, not merely the recommended one.
 
 ## Explicitly out of MVP
 

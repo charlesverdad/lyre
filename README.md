@@ -16,7 +16,7 @@ Think of it as a beautiful, capo-aware **player skinned over the free worship ch
 
 ## Try it
 
-**[charlesverdad.github.io/lyre](https://charlesverdad.github.io/lyre/)** — the live app, deployed automatically on every merge to `main`. It's a local-first PWA: everything you save lives in your browser (IndexedDB), nothing is uploaded anywhere, and it works fully offline once loaded. Install it to your home screen for the full experience.
+**[charlesverdad.github.io/lyre](https://charlesverdad.github.io/lyre/)** — the live app, deployed automatically on every merge to `main`. It's a local-first PWA: everything you save lives in your browser (`localStorage`, a few MB budget — see [domain model §5](docs/domain-model.md)), nothing is uploaded anywhere, and it works fully offline once loaded. Install it to your home screen for the full experience.
 
 ## What v0.1 does
 
@@ -24,7 +24,7 @@ Think of it as a beautiful, capo-aware **player skinned over the free worship ch
 - **Add a song** — grab a chart from a URL (pnwchords.com today, a "best effort" generic extractor for other chords-above-lyrics sites, or paste one in as a fallback) and it works out the source key, capo, and shape from headers like *"Original in Ab. Capo 1, play in G."* You can also just paste ChordPro or plain chords-above-lyrics text.
 - **Play mode** — lyrics with chords rendered above them in your saved pattern, a tap-to-open transpose sheet (step the sounding key, pick a shape, or set the capo directly — each recomputes the other two), font scaling, chords-only/lyrics-only toggles, and a screen wake lock so it doesn't sleep on the music stand.
 - **Patterns** — every song remembers *your* preferred key/shape/capo combination. Casual transposes ("Just for now") never overwrite it; "Save as my pattern" does.
-- **Data safety** — one-tap export of your whole library to a `.zip` (ChordPro files + a JSON manifest), importable back in — the backup story and anti-lock-in guarantee until sync exists.
+- **Data safety** — one-tap export of your whole library, including collections, to a `.zip` (ChordPro files + a JSON manifest), importable back in — the backup story and anti-lock-in guarantee until sync exists, and the only durable copy given `localStorage`'s evictable-under-pressure nature.
 - **Offline-first** — a service worker caches the app shell and your library so it keeps working with no connection.
 
 Playlists, team set-sharing, multi-device sync, and licensed catalog search are on the [roadmap](docs/roadmap.md), not in v0.1.
