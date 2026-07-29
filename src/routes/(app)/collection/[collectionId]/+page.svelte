@@ -45,18 +45,34 @@
 	// file's comment for why it's load-bearing): this effect writes
 	// `detailHandle`, so seeding the next query from the previous value must
 	// not also make `detailHandle` a dependency of this effect.
+	//
+	// `seededForId` (review fix) tracks which collection id the *previous*
+	// handle's value belonged to, as a plain (non-reactive) variable — it's
+	// only ever read/written from inside this same effect. Without it, a
+	// same-instance navigation from one collection to another (`/collection/A`
+	// → `/collection/B`, no unmount) would seed B's query with A's still-live
+	// `detail`, briefly rendering B's URL with A's name/rows and `loaded ===
+	// true` before B's query resolves.
 	let detailHandle = $state<LiveQueryHandle<DetailState>>();
+	let seededForId: string | undefined;
 	$effect(() => {
 		const id = collectionId;
+		const seed = untrack(() => (seededForId === id ? detailHandle?.value : undefined));
 		const handle = createLiveQuery<DetailState>(
 			async () => (id ? await getCollectionWithSongs(id) : undefined),
-			untrack(() => detailHandle?.value) ?? NOT_LOADED
+			seed ?? NOT_LOADED
 		);
 		detailHandle = handle;
+		seededForId = id;
 		return () => handle.destroy();
 	});
 
-	let loaded = $derived(detailHandle?.value !== NOT_LOADED);
+	// Review fix: `detailHandle` itself is `undefined` on the very first
+	// render (this component's `$effect` above hasn't run yet), so checking
+	// only `detailHandle?.value !== NOT_LOADED` was true from the start —
+	// `undefined !== NOT_LOADED` — and the not-found branch flashed before
+	// the live query even existed. Both must be checked.
+	let loaded = $derived(detailHandle !== undefined && detailHandle.value !== NOT_LOADED);
 	let detail = $derived(
 		detailHandle?.value === NOT_LOADED
 			? undefined
@@ -108,12 +124,24 @@
 	}
 
 	// Per-row overflow sheet: Move up / Move down / Remove from collection.
-	let rowOptionsTarget = $state<{ songId: string; title: string; index: number } | undefined>();
+	// Review fix: only the song id is captured here — `rowOptionsIndex` below
+	// re-derives the position from live `detail` on every render instead of
+	// storing a snapshot, so the sheet's disabled states can't go stale if
+	// another tab reorders the collection while this sheet is open (a
+	// display-only bug: `moveItem` always re-derives its own index and
+	// returns early on an out-of-range move, so this never corrupted data —
+	// but the buttons could show the wrong enabled/disabled state).
+	let rowOptionsTarget = $state<{ songId: string; title: string } | undefined>();
 	let rowOptionsSheetOpen = $state(false);
+	let rowOptionsIndex = $derived(
+		rowOptionsTarget
+			? (detail?.items.findIndex((entry) => entry.song.id === rowOptionsTarget!.songId) ?? -1)
+			: -1
+	);
 
-	function openRowOptions(songId: string, title: string, index: number, event: Event) {
+	function openRowOptions(songId: string, title: string, event: Event) {
 		event.stopPropagation();
-		rowOptionsTarget = { songId, title, index };
+		rowOptionsTarget = { songId, title };
 		rowOptionsSheetOpen = true;
 	}
 
@@ -289,7 +317,7 @@
 		</EmptyState>
 	{:else}
 		<div>
-			{#each detail.items as entry, index (entry.song.id)}
+			{#each detail.items as entry (entry.song.id)}
 				<ListItem
 					title={entry.song.title}
 					subtitle={songSubtitle(entry)}
@@ -300,7 +328,7 @@
 							type="button"
 							class="flex h-8 w-8 shrink-0 items-center justify-center text-ink-3"
 							aria-label="Song options for {entry.song.title}"
-							onclick={(event) => openRowOptions(entry.song.id, entry.song.title, index, event)}
+							onclick={(event) => openRowOptions(entry.song.id, entry.song.title, event)}
 						>
 							<EllipsisVertical class="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
 						</button>
@@ -320,7 +348,7 @@
 			variant="ghost"
 			size="lg"
 			aria-label="Move up"
-			disabled={!rowOptionsTarget || rowOptionsTarget.index === 0}
+			disabled={rowOptionsIndex <= 0}
 			onclick={() => moveFromOptions(-1)}
 		>
 			Move up
@@ -329,7 +357,7 @@
 			variant="ghost"
 			size="lg"
 			aria-label="Move down"
-			disabled={!rowOptionsTarget || rowOptionsTarget.index === (detail?.items.length ?? 1) - 1}
+			disabled={rowOptionsIndex < 0 || rowOptionsIndex === (detail?.items.length ?? 1) - 1}
 			onclick={() => moveFromOptions(1)}
 		>
 			Move down
@@ -347,8 +375,21 @@
 		{#if addSongsError}
 			<p class="text-[13px] text-ink-2">{addSongsError}</p>
 		{/if}
-		{#if filteredLibrarySongs.length === 0}
-			<p class="py-6 text-center text-[15px] text-ink-2">No songs match.</p>
+		<!-- Review fix: distinguish "still loading" / "library has no songs at
+		     all" / "search matched nothing" — collapsing all three into one
+		     "No songs match." wrongly told a zero-song library the same thing
+		     a mistyped search would. -->
+		{#if allSongsHandle?.value === undefined}
+			<!-- Loading: nothing to show yet, avoids flashing any of the states below. -->
+		{:else if allSongsHandle.value.length === 0}
+			<div class="flex flex-col items-center gap-3 py-6 text-center">
+				<p class="text-[15px] text-ink-2">Your library doesn't have any songs yet.</p>
+				<Button onclick={() => goto(resolve('/add'))}>Add a song</Button>
+			</div>
+		{:else if filteredLibrarySongs.length === 0}
+			<p class="py-6 text-center text-[15px] text-ink-2">
+				No songs match “{addSongsQuery}”.
+			</p>
 		{:else}
 			<div class="-mx-4">
 				{#each filteredLibrarySongs as row (row.id)}
@@ -356,6 +397,8 @@
 					<ListItem
 						title={row.title}
 						subtitle={row.subtitle}
+						role="checkbox"
+						aria-checked={isMember}
 						onclick={() => toggleAddSongsMembership(row.id, isMember)}
 					>
 						{#snippet trailing()}

@@ -592,6 +592,8 @@
 								subtitle={songCount === 0
 									? 'No songs yet'
 									: `${songCount} ${songCount === 1 ? 'song' : 'songs'}`}
+								role="checkbox"
+								aria-checked={isMember}
 								onclick={() => toggleCollectionMembership(collection.id, isMember)}
 							>
 								{#snippet trailing()}

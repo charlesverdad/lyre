@@ -80,9 +80,17 @@
 		return () => clearTimeout(timer);
 	});
 
+	// Review fix: the search box is shared by both modes (one input, two
+	// meanings — "search songs" vs "search collections"), so switching modes
+	// without clearing it carried a stale query across: type "amazing" in
+	// Songs, tap Collections, and land on "No collections match "amazing""
+	// with no way to tell that's just a leftover search term rather than an
+	// actually-empty collections list.
 	function changeViewMode(next: LibraryViewMode) {
 		viewMode = next;
 		saveLibraryViewMode(next);
+		searchValue = '';
+		debouncedQuery = '';
 	}
 
 	// --- Songs mode -----------------------------------------------------
