@@ -84,6 +84,19 @@
 	dialog.sheet[open] {
 		position: fixed;
 		inset-inline: 0;
+		/*
+		 * The UA stylesheet's `dialog:modal` rule sets *both*
+		 * `inset-block-start: 0` and `inset-block-end: 0` with
+		 * `margin: auto` to center a modal dialog. This component's `m-0`
+		 * zeros the margins, and without resetting `inset-block-start` back
+		 * to `auto` here, both insets stay at 0 with 0 margin — the box
+		 * resolves against the *top* of the viewport instead of the bottom,
+		 * even though `inset-block-end: 0` below looks like it should be
+		 * enough on its own. Anchoring to the bottom (docs/design.md: sheets
+		 * slide from the bottom) needs exactly one inset pinned and the
+		 * other freed.
+		 */
+		inset-block-start: auto;
 		inset-block-end: 0;
 		margin-inline: auto;
 		display: flex;

@@ -55,7 +55,7 @@ describe('shapeOptions', () => {
 
 describe('keyOptions', () => {
 	it('tags the *original sounding key* Original, not the shape key (task D3 review fix)', () => {
-		// "Goodness of God"-style fixture: chart entered as Ab/G/capo-1, i.e.
+		// "Original in Ab. Capo 1, play in G."-style fixture: chart entered as Ab/G/capo-1, i.e.
 		// song.defaultKey = 'Ab' (the sounding key of the initial pattern) while
 		// chart.sourceKey = 'G' (the shape the chords are written in). The
 		// "Original" tag must land on Ab, not G.

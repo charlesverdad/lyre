@@ -1,5 +1,7 @@
 /**
- * Repository functions over the Dexie schema (task A3).
+ * Repository functions over the localStorage `LyreStore` (task A3, rewritten
+ * task E1 off Dexie/IndexedDB onto docs/PLAN-v0.3.md §E1's single-document
+ * store).
  *
  * These are the only sanctioned way the rest of the app touches
  * songs/charts/patterns — they own the cross-table invariants documented in
@@ -9,10 +11,15 @@
  *   - Deleting a song cascades to its charts and patterns.
  *   - `Pattern`: `(shapeKey + capo) mod 12 == soundingKey` is a theory-engine
  *     concern (task A1); this layer stores whatever pattern it's given.
+ *
+ * Every export keeps its name, signature shape, and `async`/`Promise`
+ * return, even though the store itself is synchronous — the trailing
+ * optional `database: LyreDatabase` param is now a trailing optional
+ * `store: LyreStore`, so no call site needed logic changes beyond the type.
  */
 
-import type { LyreDatabase } from './schema';
-import { db as defaultDb } from './schema';
+import type { LyreStore, LibraryDoc } from './store';
+import { defaultStore } from './store';
 import type { SongRecord, ChartRecord, PatternRecord } from '$lib/theory/types';
 
 export type SongSort = 'recentlyPlayed' | 'recentlyAdded' | 'alpha';
@@ -28,6 +35,25 @@ function newId(): string {
 
 function nowIso(): string {
 	return new Date().toISOString();
+}
+
+/** Non-mutating sort matching F1's three library orders. */
+function sortSongsBy(songs: readonly SongRecord[], sort: SongSort): SongRecord[] {
+	const copy = [...songs];
+	switch (sort) {
+		case 'alpha':
+			return copy.sort((a, b) => a.title.localeCompare(b.title));
+		case 'recentlyAdded':
+			return copy.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+		case 'recentlyPlayed':
+			return copy.sort((a, b) => {
+				const aPlayed = a.lastPlayedAt ?? '';
+				const bPlayed = b.lastPlayedAt ?? '';
+				if (aPlayed !== bPlayed) return bPlayed.localeCompare(aPlayed);
+				// Songs never played sort after played ones, newest-added first.
+				return b.createdAt.localeCompare(a.createdAt);
+			});
+	}
 }
 
 export interface CreateSongInput {
@@ -46,7 +72,7 @@ export interface CreateSongResult {
 /** Create a song + its first chart (+ optional initial pattern) atomically. */
 export async function createSong(
 	input: CreateSongInput,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<CreateSongResult> {
 	const timestamp = nowIso();
 
@@ -75,12 +101,10 @@ export async function createSong(
 		};
 	}
 
-	await database.transaction('rw', database.songs, database.charts, database.patterns, async () => {
-		await database.songs.add(song);
-		await database.charts.add(chart);
-		if (pattern) {
-			await database.patterns.add(pattern);
-		}
+	store.mutate((doc) => {
+		doc.songs.push(song);
+		doc.charts.push(chart);
+		if (pattern) doc.patterns.push(pattern);
 	});
 
 	return { song, chart, pattern };
@@ -90,53 +114,95 @@ export async function createSong(
 export async function updateSong(
 	id: string,
 	patch: Partial<Omit<SongRecord, 'id' | 'createdAt'>>,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<void> {
-	await database.songs.update(id, { ...patch, updatedAt: nowIso() });
+	store.mutate((doc) => {
+		const song = doc.songs.find((s) => s.id === id);
+		if (!song) return; // Matches Dexie's `update`: a missing id is a silent no-op.
+		Object.assign(song, patch, { updatedAt: nowIso() });
+	});
 }
 
 /** Patch a chart's fields, bumping `updatedAt`. */
 export async function updateChart(
 	id: string,
 	patch: Partial<Omit<ChartRecord, 'id' | 'songId' | 'createdAt'>>,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<void> {
-	await database.charts.update(id, { ...patch, updatedAt: nowIso() });
+	store.mutate((doc) => {
+		const chart = doc.charts.find((c) => c.id === id);
+		if (!chart) return;
+		Object.assign(chart, patch, { updatedAt: nowIso() });
+	});
 }
 
-/** Delete a song, cascading to its charts and their patterns. */
-export async function deleteSong(id: string, database: LyreDatabase = defaultDb): Promise<void> {
-	await database.transaction('rw', database.songs, database.charts, database.patterns, async () => {
-		const chartIds = (await database.charts.where('songId').equals(id).primaryKeys()) as string[];
-		if (chartIds.length > 0) {
-			await database.patterns.where('chartId').anyOf(chartIds).delete();
-			await database.charts.bulkDelete(chartIds);
+export interface UpdateSongAndChartInput {
+	songId: string;
+	songPatch: Partial<Omit<SongRecord, 'id' | 'createdAt'>>;
+	chartId: string;
+	chartPatch: Partial<Omit<ChartRecord, 'id' | 'songId' | 'createdAt'>>;
+}
+
+/**
+ * Patch a song and one of its charts in a single commit (review fix, task
+ * E1). The edit screen used to call `updateSong` then `updateChart` as two
+ * separate `store.mutate`s — a `StorageQuotaError` on the second write
+ * (typically the chart, since it carries the larger ChordPro source) would
+ * persist the metadata patch but silently drop the chart edit while telling
+ * the user the save failed outright. One `mutate` call is atomic: either
+ * both patches land, or (on any error, including quota) neither does.
+ */
+export async function updateSongAndChart(
+	input: UpdateSongAndChartInput,
+	store: LyreStore = defaultStore
+): Promise<void> {
+	store.mutate((doc) => {
+		const timestamp = nowIso();
+		const song = doc.songs.find((s) => s.id === input.songId);
+		if (song) Object.assign(song, input.songPatch, { updatedAt: timestamp });
+		const chart = doc.charts.find((c) => c.id === input.chartId);
+		if (chart) Object.assign(chart, input.chartPatch, { updatedAt: timestamp });
+	});
+}
+
+/** Delete a song, cascading to its charts, their patterns, and (task E2) its collection items. */
+export async function deleteSong(id: string, store: LyreStore = defaultStore): Promise<void> {
+	store.mutate((doc) => {
+		const chartIds = new Set(
+			doc.charts.filter((chart) => chart.songId === id).map((chart) => chart.id)
+		);
+		doc.patterns = doc.patterns.filter((pattern) => !chartIds.has(pattern.chartId));
+		doc.charts = doc.charts.filter((chart) => chart.songId !== id);
+		doc.songs = doc.songs.filter((song) => song.id !== id);
+
+		// docs/PLAN-v0.3.md §E2: deleting a song deletes its collection items
+		// (the reverse of deleting a collection, which never touches songs).
+		// Resequence every collection that lost an item so positions stay
+		// contiguous 0..n-1, matching the invariant every collections.ts
+		// mutator enforces.
+		const affectedCollectionIds = new Set(
+			doc.collectionItems.filter((item) => item.songId === id).map((item) => item.collectionId)
+		);
+		if (affectedCollectionIds.size > 0) {
+			doc.collectionItems = doc.collectionItems.filter((item) => item.songId !== id);
+			for (const collectionId of affectedCollectionIds) {
+				const remaining = doc.collectionItems
+					.filter((item) => item.collectionId === collectionId)
+					.sort((a, b) => a.position - b.position);
+				remaining.forEach((item, index) => {
+					item.position = index;
+				});
+			}
 		}
-		await database.songs.delete(id);
 	});
 }
 
 /** List all songs, sorted per F1 (recently played | recently added | alpha). */
 export async function listSongs(
 	sort: SongSort = 'alpha',
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<SongRecord[]> {
-	const songs = await database.songs.toArray();
-
-	switch (sort) {
-		case 'alpha':
-			return songs.sort((a, b) => a.title.localeCompare(b.title));
-		case 'recentlyAdded':
-			return songs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-		case 'recentlyPlayed':
-			return songs.sort((a, b) => {
-				const aPlayed = a.lastPlayedAt ?? '';
-				const bPlayed = b.lastPlayedAt ?? '';
-				if (aPlayed !== bPlayed) return bPlayed.localeCompare(aPlayed);
-				// Songs never played sort after played ones, newest-added first.
-				return b.createdAt.localeCompare(a.createdAt);
-			});
-	}
+	return store.read((doc) => sortSongsBy(doc.songs, sort));
 }
 
 export interface SongListEntry {
@@ -148,27 +214,40 @@ export interface SongListEntry {
 }
 
 /**
- * List songs (per `sort`) alongside each one's default chart and that
- * chart's preferred pattern — everything the Library row needs (F1: title,
- * authors, pattern summary like "G shapes · capo 2 · A").
- *
- * Batched in a fixed number of queries regardless of library size (one
- * `listSongs` scan + one `anyOf` chart lookup + one `anyOf` pattern lookup)
- * rather than querying per song, so the row list stays cheap as the library
- * grows.
+ * Picks the chart a song's rows/summaries should use: the one named
+ * "Default", else the earliest-created chart. Single source of truth for
+ * this rule (task E2 review note: previously inlined only in
+ * `listSongsWithDefaultPattern`) — `collections.ts`'s
+ * `getCollectionWithSongs` must resolve the exact same chart per song or the
+ * library row and the collection row for the same song could show different
+ * pattern summaries.
  */
-export async function listSongsWithDefaultPattern(
-	sort: SongSort = 'alpha',
-	database: LyreDatabase = defaultDb
-): Promise<SongListEntry[]> {
-	const songs = await listSongs(sort, database);
-	if (songs.length === 0) return [];
+function selectDefaultChart(charts: readonly ChartRecord[]): ChartRecord | undefined {
+	if (charts.length === 0) return undefined;
+	return (
+		charts.find((chart) => chart.name === 'Default') ??
+		[...charts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
+	);
+}
 
-	const songIds = songs.map((song) => song.id);
-	const charts = await database.charts.where('songId').anyOf(songIds).toArray();
-
+/**
+ * Batched (no per-song query) resolution of each song's default chart and
+ * that chart's preferred pattern, for every id in `songIds`. Shared by
+ * `listSongsWithDefaultPattern` (below) and `collections.ts`'s
+ * `getCollectionWithSongs` — both need "the whole library already lives in
+ * memory, so resolve everything in one pass" instead of one query per song.
+ */
+export function resolveDefaultChartsAndPatterns(
+	doc: LibraryDoc,
+	songIds: Iterable<string>
+): {
+	defaultChartBySong: Map<string, ChartRecord>;
+	preferredPatternBySong: Map<string, PatternRecord>;
+} {
+	const idSet = new Set(songIds);
 	const chartsBySong = new Map<string, ChartRecord[]>();
-	for (const chart of charts) {
+	for (const chart of doc.charts) {
+		if (!idSet.has(chart.songId)) continue;
 		const existing = chartsBySong.get(chart.songId);
 		if (existing) existing.push(chart);
 		else chartsBySong.set(chart.songId, [chart]);
@@ -176,25 +255,56 @@ export async function listSongsWithDefaultPattern(
 
 	const defaultChartBySong = new Map<string, ChartRecord>();
 	for (const [songId, songCharts] of chartsBySong) {
-		const defaultChart =
-			songCharts.find((chart) => chart.name === 'Default') ??
-			[...songCharts].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-		defaultChartBySong.set(songId, defaultChart);
+		const defaultChart = selectDefaultChart(songCharts);
+		if (defaultChart) defaultChartBySong.set(songId, defaultChart);
 	}
 
-	const defaultChartIds = [...defaultChartBySong.values()].map((chart) => chart.id);
-	const patterns =
-		defaultChartIds.length > 0
-			? await database.patterns.where('chartId').anyOf(defaultChartIds).toArray()
-			: [];
-	const preferredByChart = new Map(
-		patterns.filter((pattern) => pattern.isPreferred).map((pattern) => [pattern.chartId, pattern])
-	);
+	const defaultChartIds = new Set([...defaultChartBySong.values()].map((chart) => chart.id));
+	const preferredByChart = new Map<string, PatternRecord>();
+	for (const pattern of doc.patterns) {
+		if (pattern.isPreferred && defaultChartIds.has(pattern.chartId)) {
+			preferredByChart.set(pattern.chartId, pattern);
+		}
+	}
 
-	return songs.map((song) => {
-		const defaultChart = defaultChartBySong.get(song.id);
-		const preferredPattern = defaultChart ? preferredByChart.get(defaultChart.id) : undefined;
-		return { song, defaultChart, preferredPattern };
+	const preferredPatternBySong = new Map<string, PatternRecord>();
+	for (const [songId, chart] of defaultChartBySong) {
+		const preferred = preferredByChart.get(chart.id);
+		if (preferred) preferredPatternBySong.set(songId, preferred);
+	}
+
+	return { defaultChartBySong, preferredPatternBySong };
+}
+
+/**
+ * List songs (per `sort`) alongside each one's default chart and that
+ * chart's preferred pattern — everything the Library row needs (F1: title,
+ * authors, pattern summary like "G shapes · capo 2 · A").
+ *
+ * The whole library already lives in memory (that's the point of the
+ * single-document store), so this resolves everything in one `store.read`
+ * call rather than one query per song — the same "no N+1" guarantee the old
+ * Dexie-batched version made, just trivially true now instead of needing
+ * `anyOf` lookups to get there.
+ */
+export async function listSongsWithDefaultPattern(
+	sort: SongSort = 'alpha',
+	store: LyreStore = defaultStore
+): Promise<SongListEntry[]> {
+	return store.read((doc) => {
+		const songs = sortSongsBy(doc.songs, sort);
+		if (songs.length === 0) return [];
+
+		const { defaultChartBySong, preferredPatternBySong } = resolveDefaultChartsAndPatterns(
+			doc,
+			songs.map((song) => song.id)
+		);
+
+		return songs.map((song) => ({
+			song,
+			defaultChart: defaultChartBySong.get(song.id),
+			preferredPattern: preferredPatternBySong.get(song.id)
+		}));
 	});
 }
 
@@ -205,69 +315,67 @@ export async function listSongsWithDefaultPattern(
  */
 export async function searchSongs(
 	query: string,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<SongRecord[]> {
 	const needle = query.trim().toLowerCase();
-	if (!needle) return listSongs('alpha', database);
+	if (!needle) return listSongs('alpha', store);
 
-	const [songs, charts] = await Promise.all([database.songs.toArray(), database.charts.toArray()]);
+	return store.read((doc) => {
+		const chartTextBySongId = new Map<string, string>();
+		for (const chart of doc.charts) {
+			const existing = chartTextBySongId.get(chart.songId) ?? '';
+			chartTextBySongId.set(chart.songId, `${existing}\n${chart.chordproSource}`);
+		}
 
-	const chartTextBySongId = new Map<string, string>();
-	for (const chart of charts) {
-		const existing = chartTextBySongId.get(chart.songId) ?? '';
-		chartTextBySongId.set(chart.songId, `${existing}\n${chart.chordproSource}`);
-	}
-
-	return songs
-		.filter((song) => {
+		const matches = doc.songs.filter((song) => {
 			if (song.title.toLowerCase().includes(needle)) return true;
 			if (song.authors.some((author) => author.toLowerCase().includes(needle))) return true;
 			const lyrics = chartTextBySongId.get(song.id);
 			if (lyrics && lyrics.toLowerCase().includes(needle)) return true;
 			return false;
-		})
-		.sort((a, b) => a.title.localeCompare(b.title));
+		});
+		return sortSongsBy(matches, 'alpha');
+	});
 }
 
 /** Fetch a song with all its charts and each chart's patterns. */
 export async function getSongWithDetails(
 	songId: string,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<SongWithDetails | undefined> {
-	const song = await database.songs.get(songId);
-	if (!song) return undefined;
+	return store.read((doc) => {
+		const song = doc.songs.find((s) => s.id === songId);
+		if (!song) return undefined;
 
-	const charts = await database.charts.where('songId').equals(songId).toArray();
-	const chartsWithPatterns = await Promise.all(
-		charts.map(async (chart) => ({
+		const charts = doc.charts.filter((chart) => chart.songId === songId);
+		const chartsWithPatterns = charts.map((chart) => ({
 			...chart,
-			patterns: await database.patterns.where('chartId').equals(chart.id).toArray()
-		}))
-	);
+			patterns: doc.patterns.filter((pattern) => pattern.chartId === chart.id)
+		}));
 
-	return { song, charts: chartsWithPatterns };
+		return { song, charts: chartsWithPatterns };
+	});
 }
 
 /**
  * Mark a pattern as the chart's preferred one, unsetting any previous
- * preferred pattern on the same chart in one transaction
+ * preferred pattern on the same chart in one commit
  * (domain-model.md §5: "exactly one preferred pattern per chart").
  */
 export async function setPreferredPattern(
 	patternId: string,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<void> {
-	await database.transaction('rw', database.patterns, async () => {
-		const pattern = await database.patterns.get(patternId);
+	store.mutate((doc) => {
+		const pattern = doc.patterns.find((p) => p.id === patternId);
 		if (!pattern) throw new Error(`setPreferredPattern: no pattern with id ${patternId}`);
 
-		const siblings = await database.patterns.where('chartId').equals(pattern.chartId).toArray();
-		await Promise.all(
-			siblings
-				.filter((sibling) => sibling.id !== patternId && sibling.isPreferred)
-				.map((sibling) => database.patterns.update(sibling.id, { isPreferred: false }))
-		);
-		await database.patterns.update(patternId, { isPreferred: true });
+		for (const sibling of doc.patterns) {
+			if (sibling.chartId === pattern.chartId && sibling.id !== patternId && sibling.isPreferred) {
+				sibling.isPreferred = false;
+			}
+		}
+		pattern.isPreferred = true;
 	});
 }
 
@@ -298,13 +406,11 @@ export interface SavePatternInput {
  */
 export async function savePattern(
 	input: SavePatternInput,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<PatternRecord> {
-	return database.transaction('rw', database.patterns, async () => {
-		const siblings = await database.patterns.where('chartId').equals(input.chartId).toArray();
-		const existing = input.id
-			? (siblings.find((sibling) => sibling.id === input.id) ?? null)
-			: null;
+	return store.mutate((doc) => {
+		const siblings = doc.patterns.filter((p) => p.chartId === input.chartId);
+		const existing = input.id ? (siblings.find((s) => s.id === input.id) ?? null) : null;
 
 		// A chart's first pattern is always preferred, regardless of what the
 		// caller passes — otherwise the chart would have zero preferred
@@ -327,14 +433,16 @@ export async function savePattern(
 		};
 
 		if (shouldBePreferred) {
-			await Promise.all(
-				otherSiblings
-					.filter((sibling) => sibling.isPreferred)
-					.map((sibling) => database.patterns.update(sibling.id, { isPreferred: false }))
-			);
+			for (const sibling of otherSiblings) {
+				if (sibling.isPreferred) sibling.isPreferred = false;
+			}
 		}
 
-		await database.patterns.put(pattern);
+		if (existing) {
+			Object.assign(existing, pattern);
+		} else {
+			doc.patterns.push(pattern);
+		}
 		return pattern;
 	});
 }
@@ -342,7 +450,10 @@ export async function savePattern(
 /** Stamp a song's `lastPlayedAt` to now (F1 "recently played" sort). */
 export async function touchLastPlayed(
 	songId: string,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<void> {
-	await database.songs.update(songId, { lastPlayedAt: nowIso() });
+	store.mutate((doc) => {
+		const song = doc.songs.find((s) => s.id === songId);
+		if (song) song.lastPlayedAt = nowIso();
+	});
 }

@@ -6,10 +6,22 @@
 		subtitle?: string;
 		trailing?: Snippet;
 		onclick?: () => void;
+		/** Override the default 'button' role — e.g. 'checkbox' for a membership-toggle row (task E3 review fix). */
+		role?: string;
+		/** Paired with role="checkbox": exposes the toggle's current state to assistive tech, not just a visual checkmark. */
+		'aria-checked'?: boolean;
 		class?: string;
 	}
 
-	let { title, subtitle, trailing, onclick, class: className = '' }: Props = $props();
+	let {
+		title,
+		subtitle,
+		trailing,
+		onclick,
+		role,
+		'aria-checked': ariaChecked,
+		class: className = ''
+	}: Props = $props();
 </script>
 
 <!--
@@ -20,7 +32,8 @@
 <svelte:element
 	this={onclick ? 'button' : 'div'}
 	type={onclick ? 'button' : undefined}
-	role={onclick ? 'button' : undefined}
+	role={role ?? (onclick ? 'button' : undefined)}
+	aria-checked={ariaChecked}
 	{onclick}
 	class="flex min-h-14 w-full items-center gap-3 border-b border-line px-4 py-2 text-left {className}"
 >

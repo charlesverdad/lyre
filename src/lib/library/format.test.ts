@@ -17,14 +17,14 @@ describe('formatPatternSummary', () => {
 
 describe('formatSongSubtitle', () => {
 	it('joins authors and pattern summary with a middot', () => {
-		expect(formatSongSubtitle(['Bethel Music'], 'G shapes · capo 2 · A')).toBe(
-			'Bethel Music · G shapes · capo 2 · A'
+		expect(formatSongSubtitle(['John Newton'], 'G shapes · capo 2 · A')).toBe(
+			'John Newton · G shapes · capo 2 · A'
 		);
 	});
 
 	it('joins multiple authors with commas', () => {
-		expect(formatSongSubtitle(['Chris Tomlin', 'Ed Cash'], undefined)).toBe(
-			'Chris Tomlin, Ed Cash'
+		expect(formatSongSubtitle(['John Newton', 'Isaac Watts'], undefined)).toBe(
+			'John Newton, Isaac Watts'
 		);
 	});
 
@@ -33,7 +33,7 @@ describe('formatSongSubtitle', () => {
 	});
 
 	it('falls back to just the authors when there is no pattern yet', () => {
-		expect(formatSongSubtitle(['Bethel Music'], undefined)).toBe('Bethel Music');
+		expect(formatSongSubtitle(['John Newton'], undefined)).toBe('John Newton');
 	});
 
 	it('returns an empty string when there is neither', () => {

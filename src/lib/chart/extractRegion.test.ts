@@ -26,9 +26,9 @@ Chords
 Artists
 Search
 Trending
-The Goodness of God
-Way Maker
-Build My Life
+Holy Holy Holy
+Blessed Assurance
+Come Thou Fount
 Search chords, artists, or songs...
 Sign In
 Submit a chart
@@ -36,9 +36,9 @@ Submit a chart
 ${CHART_BODY}
 
 Related posts
-10,000 Reasons
-How Great Thou Art
-Cornerstone
+What a Friend We Have in Jesus
+It Is Well with My Soul
+Nearer My God to Thee
 Follow us
 Facebook
 Instagram

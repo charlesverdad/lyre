@@ -1,13 +1,13 @@
 /**
- * Svelte 5 rune adapter over Dexie's `liveQuery` (task B1 reactivity note):
- * subscribes a Dexie live query and exposes its latest value as reactive
- * `$state`, so any table write anywhere in the app (e.g. `deleteSong`)
- * refreshes subscribed screens automatically — no manual invalidation or
- * "refetch on navigate" plumbing needed.
+ * Svelte 5 rune adapter over `LyreStore.subscribe` (task B1 reactivity note,
+ * rewritten task E1 off Dexie's `liveQuery`): re-runs `querier` on every
+ * committed store mutation (this tab) or cross-tab `storage` event, and
+ * exposes its latest value as reactive `$state` — so any write anywhere in
+ * the app (e.g. `deleteSong`) refreshes subscribed screens automatically, no
+ * manual invalidation or "refetch on navigate" plumbing needed.
  *
- * Usage from a component (recreate whenever an external dependency like a
- * sort order changes, since `liveQuery`'s auto-tracking only sees Dexie
- * table reads, not outside reactive vars):
+ * Public shape is unchanged from the Dexie version so call sites (the
+ * library screen's `untrack` pattern in particular) didn't need to change:
  *
  *   let handle = $state<LiveQueryHandle<Song[]>>();
  *   $effect(() => {
@@ -18,42 +18,56 @@
  *   // template: handle?.value ?? []
  */
 
-import { liveQuery } from 'dexie';
+import type { LyreStore } from './store';
+import { defaultStore } from './store';
 
 export interface LiveQueryHandle<T> {
 	/** Latest emitted value; reactive when read from a template or `$derived`. */
 	readonly value: T;
-	/** Stop the underlying Dexie subscription. Call from cleanup (e.g. an `$effect` return). */
+	/** Stop re-running the query on store changes. Call from cleanup (e.g. an `$effect` return). */
 	destroy(): void;
 }
 
 /**
- * Wrap `querier` in a Dexie `liveQuery` and mirror its emissions into
- * `$state`, starting from `initialValue` until the first emission arrives.
+ * Subscribe `store` and re-run `querier` on every notification, mirroring
+ * emissions into `$state`, starting from `initialValue` until the first
+ * result resolves.
  */
 export function createLiveQuery<T>(
 	querier: () => T | Promise<T>,
-	initialValue: T
+	initialValue: T,
+	store: LyreStore = defaultStore
 ): LiveQueryHandle<T> {
 	let value = $state(initialValue);
+	let destroyed = false;
+	// Guards against an earlier, slower `run()` resolving after a later one
+	// (e.g. two mutations fire in quick succession) and clobbering the
+	// value with stale data — only the most recently *started* run may write.
+	let runToken = 0;
 
-	const subscription = liveQuery(querier).subscribe({
-		next: (next) => {
+	async function run() {
+		const token = ++runToken;
+		try {
+			const next = await querier();
+			if (destroyed || token !== runToken) return;
 			value = next;
-		},
-		error: (err) => {
+		} catch (err) {
 			// A live query failing shouldn't crash the subscriber's render; log
 			// and keep the last-known-good value on screen.
 			console.error('createLiveQuery: query failed', err);
 		}
-	});
+	}
+
+	void run();
+	const unsubscribe = store.subscribe(() => void run());
 
 	return {
 		get value() {
 			return value;
 		},
 		destroy() {
-			subscription.unsubscribe();
+			destroyed = true;
+			unsubscribe();
 		}
 	};
 }

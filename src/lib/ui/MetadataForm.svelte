@@ -45,7 +45,7 @@
 		<input
 			type="text"
 			class={fieldClass}
-			placeholder="Comma-separated, e.g. Chris Tomlin, Ed Cash"
+			placeholder="Comma-separated, e.g. John Newton, Isaac Watts"
 			value={values.authorsInput}
 			oninput={(e) => set('authorsInput', e.currentTarget.value)}
 		/>

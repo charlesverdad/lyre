@@ -4,7 +4,7 @@
 	 * the transpose sheet (domain-model.md §1), font scale + view toggles,
 	 * and a screen wake lock while it's open.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -15,14 +15,27 @@
 	import Music from '@lucide/svelte/icons/music';
 	import Mic from '@lucide/svelte/icons/mic';
 	import ListMusic from '@lucide/svelte/icons/list-music';
+	import FolderPlus from '@lucide/svelte/icons/folder-plus';
+	import Check from '@lucide/svelte/icons/check';
 
 	import Badge from '$lib/ui/Badge.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import EmptyState from '$lib/ui/EmptyState.svelte';
+	import ListItem from '$lib/ui/ListItem.svelte';
 	import Sheet from '$lib/ui/Sheet.svelte';
 	import TopBar from '$lib/ui/TopBar.svelte';
 
 	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
+	import {
+		addSongToCollection,
+		createCollection,
+		listCollections,
+		listCollectionsForSong,
+		removeSongFromCollection,
+		type CollectionSummary
+	} from '$lib/db/collections';
+	import { createLiveQuery, type LiveQueryHandle } from '$lib/db/liveQuery.svelte';
+	import { StorageQuotaError } from '$lib/db/store';
 	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
 	import { parseChordPro } from '$lib/chart/chordpro';
 
@@ -60,6 +73,12 @@
 
 	let viewMode = $state<'both' | 'chordsOnly' | 'lyricsOnly'>('both');
 	let transposeSheetOpen = $state(false);
+	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
+	// failure or unhandled rejection when a save hits the localStorage quota).
+	let patternSaveError = $state<string | undefined>();
+	// Non-blocking: `touchLastPlayed`'s write failing shouldn't stop the song
+	// from being usable, just surface a quiet note (review fix, task E1).
+	let recentlyPlayedError = $state<string | undefined>();
 	let moreShapesOpen = $state(false);
 	let bottomBarVisible = $state(true);
 
@@ -80,6 +99,7 @@
 
 	async function load(id: string) {
 		loadState = 'loading';
+		recentlyPlayedError = undefined;
 		const details = await getSongWithDetails(id);
 		if (!details) {
 			loadState = 'song-not-found';
@@ -116,8 +136,21 @@
 		viewMode = 'both';
 		loadState = 'ready';
 
-		// F1 "recently played" sort — stamp on every open, not gated on anything else.
-		await touchLastPlayed(id);
+		// F1 "recently played" sort — stamp on every open, not gated on anything
+		// else. A full-document write, so it can throw `StorageQuotaError` for a
+		// full-storage user — caught here (review fix, task E1) rather than
+		// left to reject the `void load(id)` call below unhandled; the song is
+		// already rendered by this point, so a failed timestamp shouldn't block
+		// reading it, just get a quiet inline note.
+		try {
+			await touchLastPlayed(id);
+		} catch (err) {
+			console.error('touchLastPlayed failed', err);
+			recentlyPlayedError =
+				err instanceof StorageQuotaError
+					? err.message
+					: "Couldn't update recently-played — storage write failed.";
+		}
 	}
 
 	// --- Transpose sheet -----------------------------------------------
@@ -126,6 +159,7 @@
 		if (!session) return;
 		session = openDraft(session);
 		moreShapesOpen = false;
+		patternSaveError = undefined;
 		transposeSheetOpen = true;
 	}
 
@@ -167,23 +201,29 @@
 		// auto-switches shapes to avoid landing on an unplayable capo, but never
 		// persist one regardless of how the draft got here.
 		if (draft.capo > MAX_CAPO) return;
-		const record = await savePattern({
-			// Update the current preferred pattern in place rather than
-			// inserting a new row each time (repo.ts `savePattern` upserts on
-			// `id`) — otherwise every "Save as my pattern" tap would leave
-			// behind an orphaned, no-longer-preferred pattern row.
-			id: preferredPattern?.id,
-			chartId: chart.id,
-			label: preferredPattern?.label ?? 'My usual',
-			soundingKey: draft.soundingKey,
-			shapeKey: draft.shapeKey,
-			capo: draft.capo,
-			fontScale: draft.fontScale,
-			isPreferred: true
-		});
-		preferredPattern = record;
-		session = applySaveAsMyPattern(session);
-		transposeSheetOpen = false;
+		patternSaveError = undefined;
+		try {
+			const record = await savePattern({
+				// Update the current preferred pattern in place rather than
+				// inserting a new row each time (repo.ts `savePattern` upserts on
+				// `id`) — otherwise every "Save as my pattern" tap would leave
+				// behind an orphaned, no-longer-preferred pattern row.
+				id: preferredPattern?.id,
+				chartId: chart.id,
+				label: preferredPattern?.label ?? 'My usual',
+				soundingKey: draft.soundingKey,
+				shapeKey: draft.shapeKey,
+				capo: draft.capo,
+				fontScale: draft.fontScale,
+				isPreferred: true
+			});
+			preferredPattern = record;
+			session = applySaveAsMyPattern(session);
+			transposeSheetOpen = false;
+		} catch (err) {
+			patternSaveError =
+				err instanceof StorageQuotaError ? err.message : 'Could not save — please try again.';
+		}
 	}
 
 	function handleJustForNow() {
@@ -206,6 +246,77 @@
 	function goToEdit() {
 		if (!songId) return;
 		goto(resolve('/(app)/edit/[songId]', { songId }));
+	}
+
+	// --- Add to collection (task E3, docs/PLAN-v0.3.md §E3) --------------
+
+	let addToCollectionOpen = $state(false);
+	let addToCollectionError = $state<string | undefined>();
+	let newCollectionName = $state('');
+	let creatingCollection = $state(false);
+
+	interface AddToCollectionData {
+		collections: CollectionSummary[];
+		memberIds: Set<string>;
+	}
+
+	// Live so a membership edit made here (or on the collection screen, in
+	// another tab, anywhere) reflects immediately — same `untrack` shape as
+	// the library screen's live query.
+	let addToCollectionHandle = $state<LiveQueryHandle<AddToCollectionData | undefined>>();
+	$effect(() => {
+		const id = songId;
+		const handle = createLiveQuery<AddToCollectionData | undefined>(
+			async () => {
+				if (!id) return undefined;
+				const [collections, memberOf] = await Promise.all([
+					listCollections(),
+					listCollectionsForSong(id)
+				]);
+				return { collections, memberIds: new Set(memberOf.map((c) => c.id)) };
+			},
+			untrack(() => addToCollectionHandle?.value)
+		);
+		addToCollectionHandle = handle;
+		return () => handle.destroy();
+	});
+
+	function openAddToCollection() {
+		addToCollectionError = undefined;
+		newCollectionName = '';
+		addToCollectionOpen = true;
+	}
+
+	async function toggleCollectionMembership(collectionId: string, isMember: boolean) {
+		if (!songId) return;
+		addToCollectionError = undefined;
+		try {
+			if (isMember) {
+				await removeSongFromCollection(collectionId, songId);
+			} else {
+				await addSongToCollection(collectionId, songId);
+			}
+		} catch (err) {
+			addToCollectionError =
+				err instanceof StorageQuotaError ? err.message : 'Could not update — please try again.';
+		}
+	}
+
+	async function createAndAddCollection() {
+		const name = newCollectionName.trim();
+		if (!name || !songId) return;
+		addToCollectionError = undefined;
+		creatingCollection = true;
+		try {
+			const collection = await createCollection({ name });
+			await addSongToCollection(collection.id, songId);
+			newCollectionName = '';
+		} catch (err) {
+			addToCollectionError =
+				err instanceof StorageQuotaError ? err.message : 'Could not create — please try again.';
+		} finally {
+			creatingCollection = false;
+		}
 	}
 
 	// --- Wake lock + collapsible bottom bar ------------------------------
@@ -282,6 +393,14 @@
 			<button
 				type="button"
 				class="flex h-9 w-9 items-center justify-center text-ink"
+				aria-label="Add to collection"
+				onclick={openAddToCollection}
+			>
+				<FolderPlus class="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+			</button>
+			<button
+				type="button"
+				class="flex h-9 w-9 items-center justify-center text-ink"
 				aria-label="Edit song"
 				onclick={goToEdit}
 			>
@@ -295,6 +414,10 @@
 			<Badge>{formatBadge(session.working)}</Badge>
 		</button>
 	</div>
+
+	{#if recentlyPlayedError}
+		<p class="px-4 pb-3 text-[13px] text-ink-2">{recentlyPlayedError}</p>
+	{/if}
 
 	<div class="px-4 pt-1 pb-[calc(8rem+var(--safe-bottom))]">
 		<ChordChart
@@ -434,11 +557,68 @@
 			</section>
 
 			<div class="flex flex-col gap-2 border-t border-line pt-4">
+				{#if patternSaveError}
+					<p class="text-[13px] text-ink-2">{patternSaveError}</p>
+				{/if}
 				<Button size="lg" disabled={session.draft.capo > MAX_CAPO} onclick={handleSaveAsMyPattern}>
 					Save as my pattern
 				</Button>
 				<Button variant="ghost" size="lg" onclick={handleJustForNow}>Just for now</Button>
 			</div>
+		</div>
+	</Sheet>
+
+	<!-- Add to collection: every collection with a checkmark for membership
+	     (tap toggles), plus an inline "New collection" field (docs/PLAN-v0.3.md §E3). -->
+	<Sheet
+		bind:open={addToCollectionOpen}
+		title="Add to collection"
+		onclose={() => (addToCollectionOpen = false)}
+	>
+		<div class="flex flex-col gap-3 pb-2">
+			{#if addToCollectionError}
+				<p class="text-[13px] text-ink-2">{addToCollectionError}</p>
+			{/if}
+
+			{#if addToCollectionHandle?.value}
+				{#if addToCollectionHandle.value.collections.length === 0}
+					<p class="py-2 text-[15px] text-ink-2">No collections yet — create one below.</p>
+				{:else}
+					<div class="-mx-4">
+						{#each addToCollectionHandle.value.collections as { collection, songCount } (collection.id)}
+							{@const isMember = addToCollectionHandle.value.memberIds.has(collection.id)}
+							<ListItem
+								title={collection.name}
+								subtitle={songCount === 0
+									? 'No songs yet'
+									: `${songCount} ${songCount === 1 ? 'song' : 'songs'}`}
+								role="checkbox"
+								aria-checked={isMember}
+								onclick={() => toggleCollectionMembership(collection.id, isMember)}
+							>
+								{#snippet trailing()}
+									{#if isMember}
+										<Check class="h-5 w-5 text-ink" strokeWidth={2} aria-hidden="true" />
+									{/if}
+								{/snippet}
+							</ListItem>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+
+			<label class="flex flex-col gap-1.5 border-t border-line pt-3">
+				<span class="text-[13px] font-semibold text-ink-2">New collection</span>
+				<div class="flex gap-2">
+					<input
+						type="text"
+						class="w-full min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-3 focus:outline-none"
+						placeholder="e.g. Sunday service"
+						bind:value={newCollectionName}
+					/>
+					<Button onclick={createAndAddCollection} disabled={creatingCollection}>Add</Button>
+				</div>
+			</label>
 		</div>
 	</Sheet>
 {/if}

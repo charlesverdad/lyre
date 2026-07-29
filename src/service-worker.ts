@@ -7,7 +7,8 @@
  *   - install: cache every build asset + prerendered page (`$service-worker`
  *     gives us the exact list SvelteKit generated), plus the SPA fallback
  *     shell adapter-static serves for routes it can't prerender (`song/[id]`,
- *     `edit/[songId]` — runtime IndexedDB ids, see those routes' `+page.ts`).
+ *     `edit/[songId]` — runtime localStorage-backed ids, see those routes'
+ *     `+page.ts`).
  *   - fetch: network-first for navigations (fresh HTML when online, cached
  *     shell when not — a dynamic route falls back to the cached SPA shell
  *     itself, since the client-side router takes it from there), cache-first

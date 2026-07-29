@@ -7,7 +7,8 @@
 	import EmptyState from '$lib/ui/EmptyState.svelte';
 	import MetadataForm from '$lib/ui/MetadataForm.svelte';
 	import TopBar from '$lib/ui/TopBar.svelte';
-	import { getSongWithDetails, updateChart, updateSong } from '$lib/db/repo';
+	import { getSongWithDetails, updateSongAndChart } from '$lib/db/repo';
+	import { StorageQuotaError } from '$lib/db/store';
 	import type { ChartRecord, SongRecord } from '$lib/theory/types';
 	import {
 		buildChartUpdatePatch,
@@ -38,6 +39,9 @@
 	let keyManuallySet = $state(false);
 	let tab = $state<'edit' | 'preview'>('edit');
 	let saving = $state(false);
+	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
+	// failure or unhandled rejection when a save hits the localStorage quota).
+	let saveError = $state<string | undefined>();
 
 	$effect(() => {
 		const id = songId;
@@ -86,10 +90,21 @@
 	async function save() {
 		if (!song || !chart || !form || !parseState || !canSave) return;
 		saving = true;
+		saveError = undefined;
 		try {
-			await updateSong(song.id, buildSongUpdatePatch(form));
-			await updateChart(chart.id, buildChartUpdatePatch(parseState.doc));
+			// One commit for both patches (review fix, task E1): two separate
+			// `mutate` calls could quota-fail on the second and strand the
+			// metadata patch without the chart edit it was submitted with.
+			await updateSongAndChart({
+				songId: song.id,
+				songPatch: buildSongUpdatePatch(form),
+				chartId: chart.id,
+				chartPatch: buildChartUpdatePatch(parseState.doc)
+			});
 			await goto(resolve('/(app)/song/[songId]', { songId: song.id }));
+		} catch (err) {
+			saveError =
+				err instanceof StorageQuotaError ? err.message : 'Could not save — please try again.';
 		} finally {
 			saving = false;
 		}
@@ -160,6 +175,10 @@
 		{/if}
 
 		<MetadataForm values={form} onchange={onMetadataChange} {patternChip} />
+
+		{#if saveError}
+			<p class="text-[13px] text-ink-2">{saveError}</p>
+		{/if}
 
 		<div class="flex gap-2">
 			<Button size="lg" class="flex-1" disabled={!canSave} onclick={save}>
