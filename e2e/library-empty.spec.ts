@@ -8,9 +8,10 @@ test('fresh app redirects to /library and shows the empty state', async ({ page 
 	await page.waitForURL(/\/library/);
 
 	await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-	// The empty state only renders once Dexie's live query resolves (`loaded`
-	// in +page.svelte) — a cold IndexedDB open on a fresh context can take a
-	// beat longer than the default 5s assertion timeout.
+	// The empty state only renders once the library live query resolves
+	// (`loaded` in +page.svelte), which itself waits on the root layout's
+	// one-shot IndexedDB→localStorage migration check (task E1) — give it
+	// a beat longer than the default 5s assertion timeout.
 	await expect(page.locator('p', { hasText: 'Add your first song' })).toBeVisible({
 		timeout: 10_000
 	});

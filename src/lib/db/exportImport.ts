@@ -1,20 +1,34 @@
 /**
- * Whole-library export/import (task A3, mvp-spec.md F5 "Data safety").
+ * Whole-library export/import (task A3, mvp-spec.md F5 "Data safety";
+ * rewritten task E1 onto the localStorage store — zip format unchanged).
  *
  * Format: a zip (via `fflate`) containing
  *   - `manifest.json`  — schemaVersion, songs, charts (sans chordproSource),
- *                         patterns
+ *                         patterns, collections, collectionItems
  *   - `charts/<chartId>.chordpro` — one file per chart's ChordPro source
+ *
+ * `collections`/`collectionItems` are carried through the manifest starting
+ * this task (task E1, docs/PLAN-v0.3.md §E1) so task E2's real CRUD is
+ * purely additive here — they're always empty arrays until E2, and import
+ * doesn't merge them yet (nothing to merge: the target's arrays are always
+ * empty too). `SCHEMA_VERSION` stays 1 in E1 ("zip format unchanged"); E2
+ * bumps it once these arrays carry real data and defines the merge rule.
  *
  * Import merge strategy: same song id already present → skip that song (and
  * its charts/patterns); otherwise insert. Round-trip (export → import into a
- * fresh db) must be lossless.
+ * fresh store) must be lossless.
  */
 
 import { strToU8, strFromU8, zipSync, unzipSync } from 'fflate';
-import type { LyreDatabase } from './schema';
-import { db as defaultDb } from './schema';
-import type { SongRecord, ChartRecord, PatternRecord } from '$lib/theory/types';
+import type { LyreStore } from './store';
+import { defaultStore } from './store';
+import type {
+	SongRecord,
+	ChartRecord,
+	PatternRecord,
+	CollectionRecord,
+	CollectionItemRecord
+} from '$lib/theory/types';
 
 export const SCHEMA_VERSION = 1;
 
@@ -25,6 +39,8 @@ interface Manifest {
 	songs: SongRecord[];
 	charts: ManifestChart[];
 	patterns: PatternRecord[];
+	collections: CollectionRecord[];
+	collectionItems: CollectionItemRecord[];
 }
 
 function chartFileName(chartId: string): string {
@@ -32,12 +48,8 @@ function chartFileName(chartId: string): string {
 }
 
 /** Export the whole library to a zip archive (as `Uint8Array`). */
-export async function exportLibrary(database: LyreDatabase = defaultDb): Promise<Uint8Array> {
-	const [songs, charts, patterns] = await Promise.all([
-		database.songs.toArray(),
-		database.charts.toArray(),
-		database.patterns.toArray()
-	]);
+export async function exportLibrary(store: LyreStore = defaultStore): Promise<Uint8Array> {
+	const { songs, charts, patterns, collections, collectionItems } = store.read((doc) => doc);
 
 	const manifest: Manifest = {
 		schemaVersion: SCHEMA_VERSION,
@@ -47,7 +59,11 @@ export async function exportLibrary(database: LyreDatabase = defaultDb): Promise
 			delete rest.chordproSource;
 			return { ...rest, chordproFile: chartFileName(chart.id) } as ManifestChart;
 		}),
-		patterns
+		patterns,
+		// Always empty in E1 (see file doc comment) — carried through so E2
+		// doesn't need to touch this export path at all.
+		collections,
+		collectionItems
 	};
 
 	const files: Record<string, Uint8Array> = {
@@ -67,12 +83,14 @@ export interface ImportResult {
 
 /**
  * Import a library zip previously produced by `exportLibrary`. Songs whose
- * id already exists in the target database are skipped entirely (along with
- * their charts/patterns); all others are inserted.
+ * id already exists in the target store are skipped entirely (along with
+ * their charts/patterns); all others are inserted. Accepts v1 archives that
+ * predate the `collections`/`collectionItems` manifest fields (read as
+ * empty) — the owner has v1 backups.
  */
 export async function importLibrary(
 	zipData: Uint8Array,
-	database: LyreDatabase = defaultDb
+	store: LyreStore = defaultStore
 ): Promise<ImportResult> {
 	const files = unzipSync(zipData);
 	const manifestBytes = files['manifest.json'];
@@ -86,46 +104,41 @@ export async function importLibrary(
 		);
 	}
 
-	return database.transaction(
-		'rw',
-		database.songs,
-		database.charts,
-		database.patterns,
-		async () => {
-			const existingIds = new Set(await database.songs.toCollection().primaryKeys());
+	return store.mutate((doc) => {
+		const existingIds = new Set(doc.songs.map((song) => song.id));
 
-			const songsToInsert = manifest.songs.filter((song) => !existingIds.has(song.id));
-			const songIdsToInsert = new Set(songsToInsert.map((song) => song.id));
+		const songsToInsert = manifest.songs.filter((song) => !existingIds.has(song.id));
+		const songIdsToInsert = new Set(songsToInsert.map((song) => song.id));
 
-			const chartsToInsert = manifest.charts.filter((chart) => songIdsToInsert.has(chart.songId));
-			const chartIdsToInsert = new Set(chartsToInsert.map((chart) => chart.id));
+		const chartsToInsert = manifest.charts.filter((chart) => songIdsToInsert.has(chart.songId));
+		const chartIdsToInsert = new Set(chartsToInsert.map((chart) => chart.id));
 
-			const patternsToInsert = manifest.patterns.filter((pattern) =>
-				chartIdsToInsert.has(pattern.chartId)
-			);
+		const patternsToInsert = manifest.patterns.filter((pattern) =>
+			chartIdsToInsert.has(pattern.chartId)
+		);
 
-			if (songsToInsert.length > 0) {
-				await database.songs.bulkAdd(songsToInsert);
-			}
-			if (chartsToInsert.length > 0) {
-				const fullCharts: ChartRecord[] = chartsToInsert.map((chart) => {
-					const { chordproFile, ...rest } = chart;
-					const bytes = files[chordproFile];
-					if (!bytes) {
-						throw new Error(`importLibrary: zip is missing chart file ${chordproFile}`);
-					}
-					return { ...rest, chordproSource: strFromU8(bytes) };
-				});
-				await database.charts.bulkAdd(fullCharts);
-			}
-			if (patternsToInsert.length > 0) {
-				await database.patterns.bulkAdd(patternsToInsert);
-			}
-
-			return {
-				songsImported: songsToInsert.length,
-				songsSkipped: manifest.songs.length - songsToInsert.length
-			};
+		doc.songs.push(...songsToInsert);
+		if (chartsToInsert.length > 0) {
+			const fullCharts: ChartRecord[] = chartsToInsert.map((chart) => {
+				const { chordproFile, ...rest } = chart;
+				const bytes = files[chordproFile];
+				if (!bytes) {
+					throw new Error(`importLibrary: zip is missing chart file ${chordproFile}`);
+				}
+				return { ...rest, chordproSource: strFromU8(bytes) };
+			});
+			doc.charts.push(...fullCharts);
 		}
-	);
+		doc.patterns.push(...patternsToInsert);
+
+		// Nothing to merge yet for collections/collectionItems (E1: both the
+		// manifest's and the target's arrays are always empty) — task E2 owns
+		// the id-skip + dangling-item-drop merge rule described in
+		// docs/PLAN-v0.3.md §E2.
+
+		return {
+			songsImported: songsToInsert.length,
+			songsSkipped: manifest.songs.length - songsToInsert.length
+		};
+	});
 }

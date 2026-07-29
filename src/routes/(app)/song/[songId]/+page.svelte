@@ -23,6 +23,7 @@
 	import TopBar from '$lib/ui/TopBar.svelte';
 
 	import { getSongWithDetails, savePattern, touchLastPlayed } from '$lib/db/repo';
+	import { StorageQuotaError } from '$lib/db/store';
 	import type { ChartRecord, PatternRecord, SongRecord, ChartDoc } from '$lib/theory/types';
 	import { parseChordPro } from '$lib/chart/chordpro';
 
@@ -60,6 +61,12 @@
 
 	let viewMode = $state<'both' | 'chordsOnly' | 'lyricsOnly'>('both');
 	let transposeSheetOpen = $state(false);
+	// StorageQuotaError copy (task E1, docs/PLAN-v0.3.md §E1: never a silent
+	// failure or unhandled rejection when a save hits the localStorage quota).
+	let patternSaveError = $state<string | undefined>();
+	// Non-blocking: `touchLastPlayed`'s write failing shouldn't stop the song
+	// from being usable, just surface a quiet note (review fix, task E1).
+	let recentlyPlayedError = $state<string | undefined>();
 	let moreShapesOpen = $state(false);
 	let bottomBarVisible = $state(true);
 
@@ -80,6 +87,7 @@
 
 	async function load(id: string) {
 		loadState = 'loading';
+		recentlyPlayedError = undefined;
 		const details = await getSongWithDetails(id);
 		if (!details) {
 			loadState = 'song-not-found';
@@ -116,8 +124,21 @@
 		viewMode = 'both';
 		loadState = 'ready';
 
-		// F1 "recently played" sort — stamp on every open, not gated on anything else.
-		await touchLastPlayed(id);
+		// F1 "recently played" sort — stamp on every open, not gated on anything
+		// else. A full-document write, so it can throw `StorageQuotaError` for a
+		// full-storage user — caught here (review fix, task E1) rather than
+		// left to reject the `void load(id)` call below unhandled; the song is
+		// already rendered by this point, so a failed timestamp shouldn't block
+		// reading it, just get a quiet inline note.
+		try {
+			await touchLastPlayed(id);
+		} catch (err) {
+			console.error('touchLastPlayed failed', err);
+			recentlyPlayedError =
+				err instanceof StorageQuotaError
+					? err.message
+					: "Couldn't update recently-played — storage write failed.";
+		}
 	}
 
 	// --- Transpose sheet -----------------------------------------------
@@ -126,6 +147,7 @@
 		if (!session) return;
 		session = openDraft(session);
 		moreShapesOpen = false;
+		patternSaveError = undefined;
 		transposeSheetOpen = true;
 	}
 
@@ -167,23 +189,29 @@
 		// auto-switches shapes to avoid landing on an unplayable capo, but never
 		// persist one regardless of how the draft got here.
 		if (draft.capo > MAX_CAPO) return;
-		const record = await savePattern({
-			// Update the current preferred pattern in place rather than
-			// inserting a new row each time (repo.ts `savePattern` upserts on
-			// `id`) — otherwise every "Save as my pattern" tap would leave
-			// behind an orphaned, no-longer-preferred pattern row.
-			id: preferredPattern?.id,
-			chartId: chart.id,
-			label: preferredPattern?.label ?? 'My usual',
-			soundingKey: draft.soundingKey,
-			shapeKey: draft.shapeKey,
-			capo: draft.capo,
-			fontScale: draft.fontScale,
-			isPreferred: true
-		});
-		preferredPattern = record;
-		session = applySaveAsMyPattern(session);
-		transposeSheetOpen = false;
+		patternSaveError = undefined;
+		try {
+			const record = await savePattern({
+				// Update the current preferred pattern in place rather than
+				// inserting a new row each time (repo.ts `savePattern` upserts on
+				// `id`) — otherwise every "Save as my pattern" tap would leave
+				// behind an orphaned, no-longer-preferred pattern row.
+				id: preferredPattern?.id,
+				chartId: chart.id,
+				label: preferredPattern?.label ?? 'My usual',
+				soundingKey: draft.soundingKey,
+				shapeKey: draft.shapeKey,
+				capo: draft.capo,
+				fontScale: draft.fontScale,
+				isPreferred: true
+			});
+			preferredPattern = record;
+			session = applySaveAsMyPattern(session);
+			transposeSheetOpen = false;
+		} catch (err) {
+			patternSaveError =
+				err instanceof StorageQuotaError ? err.message : 'Could not save — please try again.';
+		}
 	}
 
 	function handleJustForNow() {
@@ -295,6 +323,10 @@
 			<Badge>{formatBadge(session.working)}</Badge>
 		</button>
 	</div>
+
+	{#if recentlyPlayedError}
+		<p class="px-4 pb-3 text-[13px] text-ink-2">{recentlyPlayedError}</p>
+	{/if}
 
 	<div class="px-4 pt-1 pb-[calc(8rem+var(--safe-bottom))]">
 		<ChordChart
@@ -434,6 +466,9 @@
 			</section>
 
 			<div class="flex flex-col gap-2 border-t border-line pt-4">
+				{#if patternSaveError}
+					<p class="text-[13px] text-ink-2">{patternSaveError}</p>
+				{/if}
 				<Button size="lg" disabled={session.draft.capo > MAX_CAPO} onclick={handleSaveAsMyPattern}>
 					Save as my pattern
 				</Button>

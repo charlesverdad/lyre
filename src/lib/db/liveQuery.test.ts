@@ -1,19 +1,19 @@
-import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { createTestDatabase } from './schema';
+import { createTestStore } from './store';
 import { createSong } from './repo';
 import { createLiveQuery } from './liveQuery.svelte';
 
 function flush() {
-	// Dexie's liveQuery batches emissions onto a microtask; a couple of ticks
-	// is enough to let a write's notification propagate to subscribers.
+	// The store notifies subscribers synchronously from `mutate`, but
+	// `createLiveQuery`'s querier runs (and resolves) asynchronously — a
+	// couple of ticks is enough for that to land.
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('createLiveQuery', () => {
 	it('starts at the initial value before the first emission', async () => {
-		const db = createTestDatabase(`livequery-initial-${Math.random().toString(36).slice(2)}`);
-		const handle = createLiveQuery(() => db.songs.toArray(), []);
+		const store = createTestStore();
+		const handle = createLiveQuery(() => store.read((doc) => doc.songs), [], store);
 		try {
 			expect(handle.value).toEqual([]);
 		} finally {
@@ -22,9 +22,9 @@ describe('createLiveQuery', () => {
 		}
 	});
 
-	it('updates reactively when the underlying table changes', async () => {
-		const db = createTestDatabase(`livequery-update-${Math.random().toString(36).slice(2)}`);
-		const handle = createLiveQuery(() => db.songs.toArray(), []);
+	it('updates reactively when the underlying store changes', async () => {
+		const store = createTestStore();
+		const handle = createLiveQuery(() => store.read((doc) => doc.songs), [], store);
 		await flush();
 		expect(handle.value).toEqual([]);
 
@@ -39,7 +39,7 @@ describe('createLiveQuery', () => {
 				},
 				chart: { name: 'Default', chordproSource: '[G]Hi', sourceKey: 'Ab' }
 			},
-			db
+			store
 		);
 		await flush();
 
@@ -50,8 +50,8 @@ describe('createLiveQuery', () => {
 	});
 
 	it('stops emitting after destroy()', async () => {
-		const db = createTestDatabase(`livequery-destroy-${Math.random().toString(36).slice(2)}`);
-		const handle = createLiveQuery(() => db.songs.toArray(), []);
+		const store = createTestStore();
+		const handle = createLiveQuery(() => store.read((doc) => doc.songs), [], store);
 		await flush();
 		handle.destroy();
 
@@ -66,10 +66,46 @@ describe('createLiveQuery', () => {
 				},
 				chart: { name: 'Default', chordproSource: '[C]Hi', sourceKey: 'C' }
 			},
-			db
+			store
 		);
 		await flush();
 
 		expect(handle.value).toEqual([]);
+	});
+
+	it('logs and keeps the last-known-good value when the querier rejects', async () => {
+		const store = createTestStore();
+		let shouldFail = false;
+		const handle = createLiveQuery(
+			async () => {
+				if (shouldFail) throw new Error('boom');
+				return store.read((doc) => doc.songs);
+			},
+			[],
+			store
+		);
+		await flush();
+
+		shouldFail = true;
+		await createSong(
+			{
+				song: {
+					title: 'Triggers a re-run that fails',
+					aliases: [],
+					authors: [],
+					defaultKey: 'C',
+					topics: []
+				},
+				chart: { name: 'Default', chordproSource: '[C]Hi', sourceKey: 'C' }
+			},
+			store
+		);
+		await flush();
+
+		// The failed re-run shouldn't have touched `value` — still the empty
+		// array from before the mutation, not the new song and not a crash.
+		expect(handle.value).toEqual([]);
+
+		handle.destroy();
 	});
 });

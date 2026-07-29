@@ -112,3 +112,29 @@ export interface PatternRecord extends Pattern {
 	fontScale?: number;
 	autoscrollSpeed?: number;
 }
+
+/**
+ * A named, ordered set of songs — a service set, a rehearsal list
+ * (docs/PLAN-v0.3.md §E2, domain-model.md §5 `Collection`). Defined in task
+ * E1 so the `LibraryDoc` shape and export/import plumbing are stable before
+ * E2 adds the CRUD that actually populates these arrays; E1 always leaves
+ * both this and `CollectionItemRecord` empty.
+ */
+export interface CollectionRecord {
+	id: string;
+	name: string;
+	description?: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/** Membership of one song in one collection (task E2). */
+export interface CollectionItemRecord {
+	id: string;
+	collectionId: string;
+	songId: string;
+	/** Order within the collection; contiguous 0..n-1, resequenced on write. */
+	position: number;
+	/** Optional per-set note, e.g. "straight into the chorus". */
+	note?: string;
+}
