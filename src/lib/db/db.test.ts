@@ -652,7 +652,17 @@ describe('export / import round trip', () => {
 		const { unzipSync, strFromU8 } = await import('fflate');
 		const manifest = JSON.parse(strFromU8(unzipSync(zip)['manifest.json']));
 		expect(manifest.schemaVersion).toBe(2);
-		expect(manifest.collections).toEqual([collection]);
+		// Field-wise, not `toEqual([collection])`: `collection` is the
+		// pre-membership snapshot and `addSongToCollection` bumps the
+		// collection's `updatedAt`, so the two match only when both land in
+		// the same millisecond (green locally, red in CI). JSON also drops the
+		// `description: undefined` key on the way out.
+		expect(manifest.collections).toHaveLength(1);
+		expect(manifest.collections[0]).toMatchObject({
+			id: collection.id,
+			name: 'Sunday Set',
+			createdAt: collection.createdAt
+		});
 		expect(manifest.collectionItems).toMatchObject([
 			{ collectionId: collection.id, songId: song.id, position: 0 }
 		]);
