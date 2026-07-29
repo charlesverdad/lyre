@@ -55,11 +55,11 @@ Keeping the chart key-neutral means transposition is pure rendering — the stor
 Charts are stored in [ChordPro](https://www.chordpro.org/) format — the de-facto standard, human-editable, and importable from many tools:
 
 ```
-{title: Goodness of God}
-{key: A}          # original sounding key of this chart as entered
+{title: Amazing Grace}
+{key: G}          # original sounding key of this chart as entered
 
-[G]I love You, [C]Lord
-For Your mercy [G]never fails me
+[G]Amazing grace, how [C]sweet the [G]sound
+That saved a wretch like me
 ```
 
 Rules:
