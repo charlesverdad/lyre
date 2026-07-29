@@ -325,8 +325,17 @@ describe('LyreStore cross-tab sync', () => {
 			});
 		});
 
-		const finalSongs = tabB.read((doc) => doc.songs);
-		expect(finalSongs).toHaveLength(3);
+		// Assert against the *persisted* bytes, not `tabB.read(...)` (task E4
+		// review fix — the original assertion here read `tabB`'s own
+		// in-memory cache, which is untouched by tabA's `mutate` and stays at
+		// 3 songs regardless of whether tabA's write clobbered the shared
+		// underlying storage; that made this test unable to fail even with
+		// the bug it's named after reinstated). Reading the raw key is what
+		// actually proves the persisted single-key document — the thing a
+		// third tab loading fresh, or either tab after a reload, would
+		// see — still has tab B's songs.
+		const persisted = JSON.parse(storage.getItem(LIBRARY_STORAGE_KEY)!) as { songs: unknown[] };
+		expect(persisted.songs).toHaveLength(3);
 	});
 });
 
