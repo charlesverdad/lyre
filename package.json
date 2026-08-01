@@ -21,6 +21,8 @@
 		"icons": "node scripts/generate-icons.mjs"
 	},
 	"devDependencies": {
+		"@capacitor/android": "8.5.0",
+		"@capacitor/cli": "8.5.0",
 		"@eslint/js": "^10.0.1",
 		"@playwright/test": "^1.62.0",
 		"@sveltejs/adapter-static": "^3.0.10",
@@ -46,6 +48,8 @@
 		"vitest": "^4.1.8"
 	},
 	"dependencies": {
+		"@capacitor/app": "8.1.1",
+		"@capacitor/core": "8.5.0",
 		"@lucide/svelte": "^1.27.0",
 		"fflate": "^0.8.3"
 	}

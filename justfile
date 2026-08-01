@@ -58,3 +58,24 @@ verify: lint fmt-check typecheck test
 # webServer also builds, but doing it here gives a clean failure earlier).
 e2e: build
     pnpm exec playwright test
+
+# --- Android (task F1, docs/PLAN-v0.4.md) -----------------------------------
+# `shell.nix` provides the JDK and Android SDK; enter `nix-shell` first if a
+# tool below is missing.
+
+# Build web assets for the native shell and sync them into android/. `BASE_PATH`
+# is explicitly cleared (never inherited from the caller's env) — the GH Pages
+# build's `/lyre` base breaks every asset URL once served from the webview's
+# root, so this recipe is the only supported way to produce native-bound web
+# assets, making it structurally hard to accidentally ship the `/lyre` base.
+android-build:
+    BASE_PATH= pnpm run build
+    pnpm exec cap sync android
+
+# Assemble the debug APK. Lands at
+# android/app/build/outputs/apk/debug/app-debug.apk.
+android-assemble:
+    cd android && ./gradlew assembleDebug
+
+# Convenience: build web assets + sync + assemble in one step.
+android-apk: android-build android-assemble
