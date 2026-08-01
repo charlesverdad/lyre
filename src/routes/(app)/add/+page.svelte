@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import Button from '$lib/ui/Button.svelte';
 	import ChartPreview from '$lib/ui/ChartPreview.svelte';
@@ -134,12 +133,25 @@
 		}
 	}
 
-	// PWA share-target hand-off (task D1): `/share` stashes whatever the OS
-	// share sheet sent before redirecting here. A shared URL drives the same
-	// grab flow as a pasted URL; shared text (some browsers share selected
-	// text rather than a link) prefills the paste box, which runs through
-	// the same noisy-paste extraction as any other paste.
-	onMount(() => {
+	// Share-target hand-off — both the PWA's `/share` route (task D1) and the
+	// native Android share receiver (task F2, `src/routes/+layout.svelte`)
+	// stash whatever the OS share sheet sent, then land here. A shared URL
+	// drives the same grab flow as a pasted URL; shared text (some browsers
+	// share selected text rather than a link) prefills the paste box, which
+	// runs through the same noisy-paste extraction as any other paste.
+	//
+	// `afterNavigate`, not `onMount`: a *second* native share while the app
+	// is already sitting on `/add` (warm start, `wireNativeShare`'s
+	// `shareReceived`/`appUrlOpen` listeners) re-`goto`s this same route —
+	// SvelteKit reuses the already-mounted component instance for a
+	// same-route navigation, so `onMount` (fires once, at creation) would
+	// never see the second stash. `afterNavigate` fires on the initial
+	// mount too (per SvelteKit's own docs: "runs when the component mounts,
+	// and after each subsequent navigation"), so it's a strict superset —
+	// no separate `onMount` needed for this. Verified on-device (task F2 PR
+	// notes): without this, a warm-start share landed on `/add` with the
+	// right payload sitting unconsumed in `sessionStorage`.
+	afterNavigate(() => {
 		const shared = consumeShareTarget();
 		if (shared.url) {
 			grabController?.grab(shared.url);

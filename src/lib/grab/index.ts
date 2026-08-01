@@ -19,6 +19,7 @@ export * from './registry';
 export * from './pipeline';
 export * from './fetcher';
 export * from './bareUrl';
+export { wireNativeShare } from './nativeShare';
 export { GrabController, messageFor } from './GrabController.svelte';
 export { pnwchordsAdapter } from './adapters/pnwchords';
 export { genericAdapter } from './adapters/generic';

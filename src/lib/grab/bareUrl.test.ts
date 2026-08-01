@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isBareUrl, shouldAutoGrabPastedUrl } from './bareUrl';
+import { isBareUrl, resolveSharedText, shouldAutoGrabPastedUrl } from './bareUrl';
 
 describe('isBareUrl', () => {
 	it('is true for a plain https URL', () => {
@@ -59,5 +59,52 @@ describe('shouldAutoGrabPastedUrl', () => {
 
 	it('is false when the pasted text is not a bare URL, regardless of box contents', () => {
 		expect(shouldAutoGrabPastedUrl('', 'G           C\nAmazing grace')).toBe(false);
+	});
+});
+
+describe('resolveSharedText', () => {
+	// Task F2, docs/PLAN-v0.4.md — Android's ACTION_SEND EXTRA_TEXT classified
+	// into the same {url, text} shape the web share-target route produces.
+	it('treats a bare shared URL as a grab', () => {
+		expect(resolveSharedText('https://pnwchords.com/amazing-grace')).toEqual({
+			url: 'https://pnwchords.com/amazing-grace'
+		});
+	});
+
+	it('tolerates surrounding whitespace/newlines around a bare URL', () => {
+		expect(resolveSharedText('  https://pnwchords.com/amazing-grace  \n')).toEqual({
+			url: 'https://pnwchords.com/amazing-grace'
+		});
+	});
+
+	it('extracts a URL embedded in surrounding text (unlike isBareUrl)', () => {
+		expect(resolveSharedText('Check this out: https://pnwchords.com/amazing-grace')).toEqual({
+			url: 'https://pnwchords.com/amazing-grace'
+		});
+	});
+
+	it('strips trailing sentence punctuation off an embedded URL', () => {
+		expect(resolveSharedText('see https://pnwchords.com/amazing-grace.')).toEqual({
+			url: 'https://pnwchords.com/amazing-grace'
+		});
+		expect(resolveSharedText('(link: https://pnwchords.com/amazing-grace)')).toEqual({
+			url: 'https://pnwchords.com/amazing-grace'
+		});
+	});
+
+	it('ignores a non-http(s) scheme with no http(s) URL anywhere — falls back to text', () => {
+		expect(resolveSharedText('run javascript:alert(1) now')).toEqual({
+			text: 'run javascript:alert(1) now'
+		});
+	});
+
+	it('falls back to chart text when no URL is present', () => {
+		const text = 'G           C\nAmazing grace, how sweet the sound';
+		expect(resolveSharedText(text)).toEqual({ text });
+	});
+
+	it('returns {} for empty/whitespace-only input', () => {
+		expect(resolveSharedText('')).toEqual({});
+		expect(resolveSharedText('   \n ')).toEqual({});
 	});
 });

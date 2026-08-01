@@ -22,6 +22,33 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Share-to-app (task F2, docs/PLAN-v0.4.md): Chrome's "Share"
+                 menu on a page or selected text sends this. Handled by the
+                 hand-rolled `ShareReceiverPlugin` (see its doc comment),
+                 registered in `MainActivity#onCreate` — not a second
+                 Activity, unlike some community share plugins. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- ACTION_VIEW https App Link (task F2): lets a chord-site link
+                 open in Lyre as an optional chooser target — no
+                 `android:autoVerify`/`assetlinks.json`, so this never
+                 silently claims the link without the user picking Lyre from
+                 the chooser (that would require hosting `assetlinks.json` on
+                 a domain we don't control, out of scope here).
+                 `@capacitor/app`'s `appUrlOpen` fires for this (unlike
+                 ACTION_SEND above); wired in `src/lib/grab/nativeShare.ts`. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+            </intent-filter>
+
         </activity>
 
         <provider

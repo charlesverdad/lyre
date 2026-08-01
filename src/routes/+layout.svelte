@@ -3,9 +3,13 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { initTheme } from '$lib/ui/theme.svelte';
 	import { requestPersistentStorage, defaultStore } from '$lib/db/store';
 	import { migrateFromIndexedDbOnce, getMigrationFailure } from '$lib/db/migrateFromIndexedDb';
+	import { stashShareTarget } from '$lib/addedit';
+	import { resolveSharedText, wireNativeShare } from '$lib/grab';
 	import { Capacitor } from '@capacitor/core';
 
 	let { children } = $props();
@@ -51,6 +55,22 @@
 	// no offline-fetch value when assets already ship in the APK, and caching
 	// against a `capacitor://localhost` origin risks serving stale bundled
 	// assets after an app update.
+	// Native share-to-app handoff (task F2, docs/PLAN-v0.4.md — the release's
+	// central feature). Wired at the root layout, the one choke point that
+	// runs regardless of which route the app cold-starts into (see
+	// `$lib/grab/nativeShare.ts`'s doc comment for the Java/plugin side): a
+	// shared URL or text is classified exactly like the PWA's `/share` route
+	// classifies its own params (`resolveSharedText` mirrors that shape),
+	// stashed the same way (`stashShareTarget`), then handed to `/add` — same
+	// hop the web share-target flow already makes, reusing its `onMount`
+	// consumer there rather than duplicating the grab-trigger logic here.
+	function onNativeShare(raw: string) {
+		const shared = resolveSharedText(raw);
+		if (!shared.url && !shared.text) return;
+		stashShareTarget(shared);
+		void goto(resolve('/(app)/add'), { replaceState: true });
+	}
+
 	onMount(() => {
 		if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator) {
 			navigator.serviceWorker.register(`${base}/service-worker.js`, { type: 'module' });
@@ -60,7 +80,12 @@
 		requestPersistentStorage();
 
 		refreshMigrationStatus();
-		return defaultStore.subscribe(refreshMigrationStatus);
+		const unsubscribeMigration = defaultStore.subscribe(refreshMigrationStatus);
+		const unwireNativeShare = wireNativeShare(onNativeShare);
+		return () => {
+			unsubscribeMigration();
+			unwireNativeShare();
+		};
 	});
 </script>
 
