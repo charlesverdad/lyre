@@ -6,6 +6,7 @@
 	import { initTheme } from '$lib/ui/theme.svelte';
 	import { requestPersistentStorage, defaultStore } from '$lib/db/store';
 	import { migrateFromIndexedDbOnce, getMigrationFailure } from '$lib/db/migrateFromIndexedDb';
+	import { Capacitor } from '@capacitor/core';
 
 	let { children } = $props();
 
@@ -46,8 +47,12 @@
 	// Register the offline service worker (task C1, src/service-worker.ts).
 	// SvelteKit doesn't register it for you — see
 	// https://svelte.dev/docs/kit/service-workers.
+	// Skipped inside the native app shell (task F1, docs/PLAN-v0.4.md): there's
+	// no offline-fetch value when assets already ship in the APK, and caching
+	// against a `capacitor://localhost` origin risks serving stale bundled
+	// assets after an app update.
 	onMount(() => {
-		if ('serviceWorker' in navigator) {
+		if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator) {
 			navigator.serviceWorker.register(`${base}/service-worker.js`, { type: 'module' });
 		}
 		// Best-effort, never-blocking ask that the browser not evict this

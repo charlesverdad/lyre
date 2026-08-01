@@ -8,6 +8,11 @@ bun.lockb
 # Miscellaneous
 /static/
 
+# Generated Capacitor native project (task F1, docs/PLAN-v0.4.md) — Gradle/
+# Java/XML files Prettier doesn't format, plus `cap sync`'s copied web build
+# output under android/app/src/main/assets/public (already-formatted source).
+/android/
+
 # Pre-existing project docs (T0 scaffold does not reformat doc content)
 /docs/
 /README.md

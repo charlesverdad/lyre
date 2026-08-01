@@ -10,6 +10,16 @@ const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
+	{
+		// The generated Capacitor native project (task F1, docs/PLAN-v0.4.md).
+		// `android/` is committed (standard Capacitor practice: Gradle/Java/XML
+		// config alongside our own build.gradle edits), but `cap sync` copies
+		// the whole web build into android/app/src/main/assets/public — that's
+		// already-linted, already-built output, not source, and android/'s own
+		// .gitignore (not read by eslint's includeIgnoreFile, which only parses
+		// the one path given above) is what keeps it out of git.
+		ignores: ['android/**']
+	},
 	js.configs.recommended,
 	ts.configs.recommended,
 	svelte.configs.recommended,

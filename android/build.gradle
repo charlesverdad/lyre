@@ -1,0 +1,45 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.google.gms:google-services:4.4.4'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    // Pin every module's build-tools to exactly what shell.nix's
+    // android-nixpkgs selection provides (build-tools-36-1-0). AGP 8.13's
+    // own hardcoded default (35.0.0) doesn't track compileSdk and doesn't
+    // match, and the nix-built SDK is a read-only store path — AGP cannot
+    // auto-download a missing version the way it can against a normal,
+    // writable SDK install (task F1, docs/PLAN-v0.4.md). This has to be set
+    // here, not just in app/build.gradle, because library modules pulled in
+    // via node_modules (capacitor-android, capacitor-app,
+    // capacitor-cordova-android-plugins) each configure their own `android {
+    // }` block and don't inherit the app module's setting.
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            project.android.buildToolsVersion = "36.1.0"
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

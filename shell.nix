@@ -23,6 +23,7 @@ pkgs.mkShell {
     echo "  just : $(just --version)"
     echo ""
     echo "  Quick start: just dev"
+    echo "  Android work (task F1, docs/PLAN-v0.4.md): nix-shell shell-android.nix"
     echo ""
   '';
 }
