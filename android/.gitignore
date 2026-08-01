@@ -99,3 +99,14 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# capacitor.settings.gradle is rewritten by every `cap sync`/`cap update` and
+# bakes in pnpm's exact virtual-store paths for the installed Capacitor
+# package versions (e.g. `.pnpm/@capacitor+android@8.5.0_@capacitor+core@8.5.0/...`).
+# Committing it pins those paths, so any Capacitor version bump or pnpm
+# layout change silently breaks the Gradle build until someone remembers to
+# re-run `cap sync` — gitignoring it instead makes `just android-build`
+# (which always runs `cap sync`) the single source of truth. See
+# `just android-assemble`'s doc comment: it depends on `android-build` for
+# exactly this reason.
+capacitor.settings.gradle

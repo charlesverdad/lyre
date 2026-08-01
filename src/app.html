@@ -2,7 +2,13 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- `viewport-fit=cover` (task F1 follow-up, docs/PLAN-v0.4.md) lets Android's
+		WebView paint edge-to-edge under the status/navigation bars and populate the
+		standard CSS `env(safe-area-inset-*)` values `layout.css` already reads —
+		required for Android 15+'s enforced edge-to-edge to not clip content behind
+		the system bars. Harmless on the web: browsers ignore `viewport-fit` outside
+		a fullscreen/standalone display mode. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="text-scale" content="scale" />
 		<meta name="theme-color" content="#ffffff" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />

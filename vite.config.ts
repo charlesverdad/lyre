@@ -35,6 +35,19 @@ export default defineConfig({
 			// leading-slash path (SvelteKit's own `paths.base` constraint).
 			paths: {
 				base: basePath()
+			},
+			// Kit auto-registers `src/service-worker.ts` by default
+			// (`kit.serviceWorker.register` defaults to true) — that
+			// registration ran unconditionally, on every platform, ignoring
+			// the `Capacitor.isNativePlatform()` guard around the manual
+			// `navigator.serviceWorker.register(...)` call in
+			// +layout.svelte (task F1 follow-up, docs/PLAN-v0.4.md: caught by
+			// actually running the APK and querying `getRegistrations()`, not
+			// by reading the guard). Disabling Kit's own registration makes
+			// the guarded manual call in +layout.svelte the single
+			// registration path.
+			serviceWorker: {
+				register: false
 			}
 		})
 	],
